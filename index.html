@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Pick'em Playoff MPL ID S18 · esportsku</title>
+<meta name="description" content="Tebak skor seri playoff MPL ID S18, kumpulkan poin, dan adu ranking dengan pembaca esportsku. Gratis.">
+<meta property="og:title" content="Pick'em Playoff MPL ID S18">
+<meta property="og:description" content="Tebak skor 8 match playoff, gratis. Berani adu tebakan?">
+<meta name="theme-color" content="#0A1226">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --blue:#1D5BFF;--blue-600:#0F47E0;--blue-200:#D5E1FF;--blue-100:#EAF0FF;
+  --ink:#0A1226;--text2:#3A4459;--muted:#5B6479;--canvas:#F6F8FC;--border:#E3E8F0;
+  --ok:#0B7F45;--ok-bg:#E6F6EE;--warn:#B45309;--warn-bg:#FFF4E0;--bad:#D02F33;--bad-bg:#FDECEC;
+  --card-bg:linear-gradient(180deg,#FFFFFF,#FBFCFE);
+  --card-sh:inset 0 1px 0 #fff,0 1px 2px rgba(10,18,38,.05),0 18px 40px -18px rgba(16,40,110,.22);
+  --r:16px;
+}
+*{box-sizing:border-box;margin:0}
+body{font:500 15px/1.5 "Plus Jakarta Sans",system-ui,sans-serif;color:var(--ink);min-height:100vh;
+  background:radial-gradient(900px 640px at 92% -4%,#D9E4FF 0%,rgba(217,228,255,0) 62%),radial-gradient(700px 500px at -6% 46%,#E6ECFB 0%,rgba(230,236,251,0) 60%),var(--canvas)}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none}
+button:disabled{cursor:not-allowed}
+:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.wrap{max-width:560px;margin:0 auto;padding:0 16px 48px}
+
+.hero{margin:0 -16px;padding:28px 20px 72px;color:#fff;border-radius:0 0 28px 28px;
+  background:radial-gradient(90% 70% at 100% 0%,#1E3470 0%,#0A1226 60%);box-shadow:0 30px 60px -24px rgba(10,18,38,.55)}
+.hero .kicker{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#9DB8FF}
+.hero h1{font-size:26px;line-height:1.15;font-weight:800;margin:6px 0 8px;letter-spacing:-.01em}
+.hero p{color:#C6D0E6;font-size:14px}
+.rules{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.rules span{font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14)}
+
+.tabs{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin:-48px 0 16px;
+  border-radius:14px;background:rgba(255,255,255,.96);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:var(--card-sh)}
+.tabs button{padding:11px;border-radius:10px;font-weight:700;color:var(--muted)}
+.tabs button[aria-selected=true]{background:linear-gradient(160deg,#4D7DFF,#1D5BFF 55%,#0F47E0);color:#fff;box-shadow:0 10px 20px -10px rgba(29,91,255,.6)}
+
+.card{background:var(--card-bg);box-shadow:var(--card-sh);border-radius:var(--r);padding:16px;margin-bottom:12px}
+.day{font-size:13px;font-weight:700;color:var(--muted);margin:22px 4px 10px;text-transform:uppercase;letter-spacing:.06em}
+.day:first-child{margin-top:4px}
+
+.m-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted);font-weight:600}
+.m-head b{color:var(--ink)}
+.teams{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;margin:12px 0 10px}
+.team{font-weight:700;font-size:15px;line-height:1.25}
+.team:last-child{text-align:right}
+.team.tbd{color:var(--muted);font-weight:600;font-style:italic}
+.team.win{color:var(--blue-600)}
+.team.lose{color:var(--muted)}
+.vs{font-size:12px;font-weight:700;color:var(--muted);text-align:center}
+.vs.final{font-size:20px;font-weight:800;color:var(--ink);letter-spacing:.02em}
+.picks{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.side{display:grid;gap:6px}
+.side.bo7{grid-template-columns:1fr 1fr}
+.score{min-height:44px;border-radius:10px;border:1.5px solid var(--border);background:#fff;font-weight:700;font-variant-numeric:tabular-nums;transition:transform .12s,border-color .12s,background .12s}
+.score:not(:disabled):hover{border-color:var(--blue);transform:translateY(-1px)}
+.score[aria-pressed=true]{background:var(--blue);border-color:var(--blue);color:#fff;box-shadow:0 8px 16px -8px rgba(29,91,255,.7)}
+.score:disabled{opacity:.45}
+.score[aria-pressed=true]:disabled{opacity:1}
+.score.hit{background:var(--ok);border-color:var(--ok);color:#fff}
+.score.miss{background:var(--bad-bg);border-color:var(--bad);color:var(--bad)}
+.score.actual{border-color:var(--ok);border-style:dashed;opacity:1}
+
+.status{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px;font-size:13px;color:var(--text2);min-height:28px}
+.status .ok{color:var(--ok);font-weight:700}
+.status .err{color:var(--bad);font-weight:700}
+.pts{font-weight:800;font-size:13px;padding:4px 10px;border-radius:999px;background:var(--ok-bg);color:var(--ok);white-space:nowrap}
+.pts.zero{background:var(--bad-bg);color:var(--bad)}
+.joker{font-size:12px;font-weight:700;padding:6px 10px;border-radius:999px;border:1.5px solid var(--border);white-space:nowrap}
+.joker[aria-pressed=true]{background:var(--warn-bg);border-color:var(--warn);color:var(--warn)}
+.dist{margin-top:12px}
+.bar{display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--blue-100)}
+.bar i{background:var(--blue)}
+.dist small{display:flex;justify-content:space-between;margin-top:4px;font-size:12px;color:var(--muted);font-weight:600}
+
+.ad:empty{display:none}
+.ad{margin:16px 0}
+
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:48px;border-radius:12px;font-weight:700}
+.btn.primary{background:linear-gradient(160deg,#4D7DFF,#1D5BFF 55%,#0F47E0);color:#fff;box-shadow:0 14px 28px -12px rgba(29,91,255,.6)}
+.btn.wa{background:#1FAF55;color:#fff;box-shadow:0 14px 28px -12px rgba(31,175,85,.6);margin-top:16px}
+.btn.ghost{border:1.5px solid var(--border);background:#fff}
+
+.seg{display:flex;gap:6px;margin-bottom:12px}
+.seg button{padding:8px 14px;border-radius:999px;font-size:13px;font-weight:700;border:1.5px solid var(--border);background:#fff;color:var(--text2)}
+.seg button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:#fff}
+.me{background:radial-gradient(90% 70% at 100% 0%,#1E3470 0%,#0A1226 60%);color:#fff}
+.me .big{font-size:28px;font-weight:800}
+.me .sub{color:#C6D0E6;font-size:13px}
+.me .btn{margin-top:12px}
+.rows{padding:6px 0}
+.row{display:grid;grid-template-columns:44px 1fr auto;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--border);font-variant-numeric:tabular-nums}
+.row:first-child{border-top:0}
+.row .rk{font-weight:800;color:var(--muted)}
+.row .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .nm small{display:block;font-weight:500;color:var(--muted);font-size:12px}
+.row .pt{font-weight:800}
+.row.top .rk{color:var(--blue-600)}
+.row.mine{background:var(--blue-100)}
+.gap{text-align:center;color:var(--muted);padding:4px;border-top:1px solid var(--border)}
+.empty{text-align:center;color:var(--text2);padding:28px 16px}
+
+.banner{background:var(--warn-bg);border:1px solid #F5D9A8;color:#7A3E00;border-radius:12px;padding:12px 14px;font-size:13px;margin-bottom:12px}
+.banner a{color:inherit;font-weight:800}
+
+footer{margin-top:28px;font-size:12px;color:var(--muted);text-align:center;line-height:1.7}
+footer button,footer a{color:var(--text2);font-weight:700;text-decoration:underline}
+
+dialog{border:0;border-radius:20px;padding:24px 20px;max-width:400px;width:calc(100% - 32px);box-shadow:0 30px 60px -20px rgba(10,18,38,.5)}
+dialog::backdrop{background:rgba(10,18,38,.55);backdrop-filter:blur(2px)}
+dialog h2{font-size:20px;font-weight:800;margin-bottom:6px}
+dialog p{color:var(--text2);font-size:14px;margin-bottom:16px}
+dialog .note{font-size:12px;color:var(--muted);margin:12px 0 0}
+dialog .btn+.btn{margin-top:8px}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;font-weight:600;z-index:20;max-width:calc(100% - 32px)}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="kicker">esportsku · Playoff 4–8 Nov 2026<span id="sponsor"></span></div>
+    <h1>Pick'em Playoff<br>MPL ID S18</h1>
+    <p>Tebak skor seri 8 match playoff. Gratis, tanpa koin. Tebakan terkunci saat match mulai.</p>
+    <div class="rules"><span>Pemenang benar +3</span><span>Skor tepat +2</span><span>Joker 2x · sekali</span></div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="tebak">Tebak</button>
+    <button role="tab" aria-selected="false" data-tab="klasemen">Klasemen</button>
+  </nav>
+
+  <div id="inapp" class="banner" hidden></div>
+
+  <main id="tebak">
+    <div id="list-a"></div>
+    <!-- SLOT A: tempel kode iklan di dalam div ini. Kosong = tidak memakan ruang. -->
+    <div class="ad" id="slot-a"></div>
+    <div id="list-b"></div>
+  </main>
+  <main id="klasemen" hidden>
+    <div class="seg">
+      <button aria-pressed="true" data-board="global">Global</button>
+      <button aria-pressed="false" data-board="day">Hari ini</button>
+    </div>
+    <div id="board"></div>
+    <!-- SLOT B: tempel kode iklan di dalam div ini (tampil setelah rank 10). -->
+    <div class="ad" id="slot-b" hidden></div>
+    <div id="board-rest"></div>
+  </main>
+
+  <footer id="foot"></footer>
+</div>
+
+<dialog id="login">
+  <h2>Simpan tebakanmu</h2>
+  <p>Masuk sekali pakai Google. Skor yang tadi kamu pilih langsung tersimpan setelah kembali.</p>
+  <button class="btn primary" id="google">Masuk dengan Google</button>
+  <button class="btn ghost" id="later">Nanti saja</button>
+  <p class="note">Kami menyimpan nama dan email Google kamu hanya untuk pick'em ini dan menghubungi pemenang. Klasemen hanya menampilkan nama depan + inisial. Akun bisa dihapus kapan saja dari bagian bawah halaman.</p>
+</dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script>
+const CFG = {
+  SUPABASE_URL: 'https://YOUR-PROJECT.supabase.co',
+  SUPABASE_KEY: 'YOUR-ANON-KEY',
+  GA_ID: '',        // 'G-XXXX' kalau subdomain belum ikut GA esportsku
+  SPONSOR: '',      // 'Brand X' → "Pick'em MPL by Brand X" + disebut di pesan WA
+  TERMS_URL: '',    // isi kalau ada hadiah (S&K wajib)
+  DAYS: ['2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08'],
+};
+
+const sb = supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_KEY, { auth: { flowType: 'pkce' } });
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const WIB = { timeZone: 'Asia/Jakarta' };
+const fmtTime = d => new Intl.DateTimeFormat('id-ID', { ...WIB, hour: '2-digit', minute: '2-digit' }).format(d).replace(':', '.');
+const fmtDay = d => new Intl.DateTimeFormat('id-ID', { ...WIB, weekday: 'long', day: 'numeric', month: 'long' }).format(d);
+const isoDay = d => new Intl.DateTimeFormat('en-CA', WIB).format(d);
+const track = (name, params = {}) => window.gtag?.('event', name, params);
+const toast = msg => { const t = Object.assign(document.createElement('div'), { className: 'toast', textContent: msg, role: 'status' }); document.body.append(t); setTimeout(() => t.remove(), 3200); };
+
+if (CFG.GA_ID) {
+  document.head.append(Object.assign(document.createElement('script'), { async: true, src: `https://www.googletagmanager.com/gtag/js?id=${CFG.GA_ID}` }));
+  window.dataLayer = window.dataLayer || [];
+  window.gtag = function () { dataLayer.push(arguments); };
+  gtag('js', new Date()); gtag('config', CFG.GA_ID);
+}
+if (CFG.SPONSOR) $('#sponsor').textContent = ` · by ${CFG.SPONSOR}`;
+
+const S = { user: null, matches: [], picks: {}, resets: new Set(), stats: {}, busy: {}, errs: {}, board: 'global', loadErr: false };
+
+// Login Google sering diblokir di browser bawaan Instagram/Facebook/TikTok/LINE.
+const IN_APP = /Instagram|FBAN|FBAV|FB_IAB|Line\/|TikTok|musical_ly|Twitter|WhatsApp/i.test(navigator.userAgent);
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
+function showInApp() {
+  const url = location.href.replace(/^https?:\/\//, '');
+  $('#inapp').innerHTML = IS_ANDROID
+    ? `Login Google tidak jalan di browser aplikasi ini. <a href="intent://${esc(url)}#Intent;scheme=https;package=com.android.chrome;end">Buka di Chrome</a>`
+    : `Login Google tidak jalan di browser aplikasi ini. Ketuk menu <b>⋯</b> lalu <b>Buka di Safari</b>.`;
+  $('#inapp').hidden = false;
+}
+if (IN_APP) showInApp();
+
+const nameOf = u => {
+  const w = (u?.user_metadata?.full_name || u?.user_metadata?.name || '').trim().split(/\s+/).filter(Boolean);
+  return !w.length ? 'Pemain' : w.length === 1 ? w[0] : `${w[0]} ${w[w.length - 1][0].toUpperCase()}.`;
+};
+const label = (m, side) => {
+  const team = m[`team_${side}`], src = m[`src_${side}`];
+  return team || (src ? `${src[0] === 'W' ? 'Pemenang' : 'Kalah'} M${src.slice(1)}` : 'TBD');
+};
+const isLocked = m => Date.now() >= new Date(m.starts_at).getTime();
+const isDone = m => m.score_a != null;
+const scoresFor = bo => { const w = (bo + 1) / 2; return Array.from({ length: w }, (_, l) => [w, l]); };
+
+/* ---------- Data ---------- */
+async function load() {
+  const [m, st] = await Promise.all([sb.from('matches').select('*').order('id'), sb.rpc('pick_stats')]);
+  if (m.error) { S.loadErr = true; return render(); }
+  S.loadErr = false;
+  S.matches = m.data;
+  S.stats = Object.fromEntries((st.data || []).map(r => [r.match_id, r]));
+  if (S.user) {
+    const [p, r] = await Promise.all([sb.from('predictions').select('*'), sb.from('pick_resets').select('match_id')]);
+    S.picks = Object.fromEntries((p.data || []).map(x => [x.match_id, x]));
+    S.resets = new Set((r.data || []).map(x => x.match_id));
+  } else { S.picks = {}; S.resets = new Set(); }
+  render();
+}
+
+async function save(id, a, b, joker) {
+  const prev = S.picks[id];
+  S.busy[id] = true; S.errs[id] = null;
+  S.picks[id] = { ...prev, match_id: id, pick_a: a, pick_b: b, is_joker: joker };
+  render();
+  const { data: isChange, error } = await sb.rpc('save_prediction', { p_match: id, p_a: a, p_b: b, p_joker: joker });
+  S.busy[id] = false;
+  if (error) {
+    S.errs[id] = error.message || 'Gagal menyimpan. Coba lagi.';
+    if (prev) S.picks[id] = prev; else delete S.picks[id]; // balik ke state server
+    if (/ditutup|ditentukan/.test(error.message)) load();
+  } else {
+    S.resets.delete(id);
+    track('pickem_save', { match_id: id, is_change: !!isChange });
+    if (joker && !prev?.is_joker) track('pickem_joker', { match_id: id });
+  }
+  render();
+}
+
+function pick(id, a, b) {
+  if (!S.user) {
+    localStorage.setItem('pk_pending', JSON.stringify({ id, a, b }));
+    $('#login').showModal();
+    return;
+  }
+  save(id, a, b, !!S.picks[id]?.is_joker);
+}
+
+async function login() {
+  if (IN_APP) { $('#login').close(); showInApp(); $('#inapp').scrollIntoView({ behavior: 'smooth' }); return; }
+  localStorage.setItem('pk_login', '1');
+  const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } });
+  if (error) toast('Login gagal. Coba lagi.');
+}
+
+/* ---------- Render: Tebak ---------- */
+function matchCard(m) {
+  const p = S.picks[m.id], locked = isLocked(m), done = isDone(m), tbd = !m.team_a || !m.team_b;
+  const open = !locked && !tbd && !m.void, start = new Date(m.starts_at);
+  const winA = done && m.score_a > m.score_b;
+  const btn = (a, b) => {
+    const sel = p && p.pick_a === a && p.pick_b === b, actual = done && m.score_a === a && m.score_b === b;
+    let cls = 'score';
+    if (done && sel) cls += actual ? ' hit' : (Math.sign(a - b) === Math.sign(m.score_a - m.score_b) ? ' hit' : ' miss');
+    else if (actual) cls += ' actual';
+    return `<button class="${cls}" aria-pressed="${!!sel}" ${open && !S.busy[m.id] ? '' : 'disabled'} data-pick="${m.id},${a},${b}" aria-label="${esc(label(m, a > b ? 'a' : 'b'))} menang ${a}–${b}">${a}–${b}</button>`;
+  };
+  const opts = scoresFor(m.best_of);
+  const time = m.time_tbc ? `Jam menyusul · tutup ≤ ${fmtTime(start)} WIB` : `${fmtTime(start)} WIB`;
+
+  let status, right = '';
+  if (m.void) status = 'Match dibatalkan · semua tebakan 0 poin';
+  else if (tbd) status = 'Dibuka setelah lawan ditentukan';
+  else if (S.busy[m.id]) status = 'Menyimpan…';
+  else if (S.errs[m.id]) status = `<span class="err">${esc(S.errs[m.id])}</span>`;
+  else if (done) {
+    status = p ? `Hasil ${m.score_a}–${m.score_b}` : `Hasil ${m.score_a}–${m.score_b} · kamu tidak menebak`;
+    if (p) right = `<span class="pts ${p.points ? '' : 'zero'}">+${p.points ?? 0}${p.is_joker ? ' · Joker' : ''}</span>`;
+  } else if (locked) status = p ? 'Terkunci · menunggu hasil' : 'Tebakan sudah ditutup';
+  else if (!S.user) status = 'Masuk untuk menyimpan';
+  else if (p) status = `<span class="ok">✓ Tersimpan</span> · bisa diganti sampai ${fmtTime(start)} WIB`;
+  else if (S.resets.has(m.id)) status = '<span class="err">Tebakanmu dihapus karena tim berubah. Tebak lagi.</span>';
+  else status = 'Pilih skor seri';
+
+  if (open && p && !S.busy[m.id]) {
+    const used = Object.values(S.picks).find(x => x.is_joker && x.match_id !== m.id);
+    right = used
+      ? `<span class="joker" title="Joker hanya sekali">Joker di M${used.match_id}</span>`
+      : `<button class="joker" aria-pressed="${!!p.is_joker}" data-joker="${m.id}">${p.is_joker ? '★ Joker 2x' : '☆ Pakai Joker'}</button>`;
+  } else if (!done && p?.is_joker) right = '<span class="joker" aria-pressed="true">★ Joker 2x</span>';
+
+  const st = S.stats[m.id];
+  const dist = locked && st && st.total && !tbd ? (() => {
+    const lead = st.pct_a >= 50 ? ['a', st.pct_a] : ['b', 100 - st.pct_a];
+    return `<div class="dist"><div class="bar"><i style="width:${st.pct_a}%"></i></div>
+      <small><span>${st.pct_a}% ${esc(label(m, 'a'))}</span><span>${100 - st.pct_a}% ${esc(label(m, 'b'))}</span></small>
+      <small><span>${lead[1]}% dari ${st.total.toLocaleString('id-ID')} pemain pilih ${esc(label(m, lead[0]))}</span></small></div>`;
+  })() : '';
+
+  return `<article class="card" id="m${m.id}">
+    <div class="m-head"><span><b>M${m.id}</b> · ${esc(m.round)} · BO${m.best_of}</span><span>${time}</span></div>
+    <div class="teams">
+      <div class="team ${m.team_a ? '' : 'tbd'} ${done ? (winA ? 'win' : 'lose') : ''}">${esc(label(m, 'a'))}</div>
+      <div class="vs ${done ? 'final' : ''}">${done ? `${m.score_a}–${m.score_b}` : 'vs'}</div>
+      <div class="team ${m.team_b ? '' : 'tbd'} ${done ? (winA ? 'lose' : 'win') : ''}">${esc(label(m, 'b'))}</div>
+    </div>
+    <div class="picks">
+      <div class="side ${m.best_of === 7 ? 'bo7' : ''}">${opts.map(([w, l]) => btn(w, l)).join('')}</div>
+      <div class="side ${m.best_of === 7 ? 'bo7' : ''}">${opts.map(([w, l]) => btn(l, w)).join('')}</div>
+    </div>
+    ${dist}
+    <div class="status" aria-live="polite"><span>${status}</span>${right}</div>
+  </article>`;
+}
+
+// Slot iklan statis di HTML (tidak ikut di-render ulang = tidak refresh iklan).
+function renderTebak() {
+  if (S.loadErr) { $('#list-b').innerHTML = ''; return $('#list-a').innerHTML = `<div class="card empty">Gagal memuat jadwal.<br><br><button class="btn ghost" data-retry>Coba lagi</button></div>`; }
+  if (!S.matches.length) return $('#list-a').innerHTML = '<div class="card empty">Memuat jadwal…</div>';
+  const html = { a: '', b: '' }; let day = '';
+  for (const m of S.matches) {
+    const d = fmtDay(new Date(m.starts_at)), k = m.id <= 2 ? 'a' : 'b';
+    if (d !== day) { html[k] += `<h2 class="day">${d}</h2>`; day = d; }
+    html[k] += matchCard(m);
+  }
+  if (Object.keys(S.picks).length) html.b += `<button class="btn wa" data-share>Tantang teman via WhatsApp</button>`;
+  $('#list-a').innerHTML = html.a; $('#list-b').innerHTML = html.b;
+}
+
+/* ---------- Render: Klasemen ---------- */
+const boardDay = () => { const t = isoDay(new Date()); return t < CFG.DAYS[0] ? CFG.DAYS[0] : t > CFG.DAYS.at(-1) ? CFG.DAYS.at(-1) : t; };
+
+async function renderBoard() {
+  const el = $('#board'), day = S.board === 'day' ? boardDay() : null;
+  el.innerHTML = '<div class="card empty">Memuat klasemen…</div>'; $('#slot-b').hidden = true; $('#board-rest').innerHTML = '';
+  const { data, error } = await sb.rpc('leaderboard', day ? { p_day: day } : {});
+  if (error) return el.innerHTML = `<div class="card empty">Gagal memuat klasemen.<br><br><button class="btn ghost" data-board-retry>Coba lagi</button></div>`;
+  const me = data.find(r => r.is_me), top = data.filter(r => r.rank <= 100);
+  const dayLabel = day ? `<p class="sub">${fmtDay(new Date(day + 'T12:00:00+07:00'))}</p>` : '';
+  const meCard = !S.user
+    ? `<div class="card me"><div class="sub">Peringkatmu</div><div class="big">Belum masuk</div>${dayLabel}<button class="btn primary" data-login>Masuk untuk ikut klasemen</button></div>`
+    : me
+      ? `<div class="card me"><div class="sub">Peringkatmu ${day ? 'hari ini' : ''}</div><div class="big">#${me.rank.toLocaleString('id-ID')} · ${me.points} poin</div>
+         <div class="sub">${me.exact} skor tepat · ${me.picks} tebakan</div>${dayLabel}</div>`
+      : `<div class="card me"><div class="sub">Peringkatmu</div><div class="big">Belum menebak</div>${dayLabel}<button class="btn primary" data-goto="tebak">Isi tebakan</button></div>`;
+  if (!top.length) return el.innerHTML = meCard + `<div class="card empty">Belum ada yang menebak. Jadilah yang pertama.</div>`;
+  const row = r => `<div class="row ${r.rank <= 3 ? 'top' : ''} ${r.is_me ? 'mine' : ''}"><span class="rk">#${r.rank}</span>
+    <span class="nm">${esc(r.name)}${r.is_me ? ' (kamu)' : ''}<small>${r.exact} skor tepat</small></span><span class="pt">${r.points}</span></div>`;
+  const first = top.slice(0, 10).map(row).join(''), rest = top.slice(10).map(row).join('');
+  el.innerHTML = meCard + `<div class="card rows">${first}</div>`;
+  $('#slot-b').hidden = false;
+  $('#board-rest').innerHTML = (rest ? `<div class="card rows">${rest}</div>` : '')
+    + (me && me.rank > 100 ? `<div class="card rows"><div class="gap">⋯</div>${row(me)}</div>` : '');
+}
+
+/* ---------- Render: footer ---------- */
+function renderFoot() {
+  $('#foot').innerHTML = (S.user
+    ? `Masuk sebagai <b>${esc(nameOf(S.user))}</b> · <button data-logout>Keluar</button> · <button data-delete>Hapus akun & data</button><br>`
+    : `<button data-login>Masuk dengan Google</button><br>`)
+    + `Ikut gratis, tanpa pembelian apa pun. Poin dihitung otomatis setelah hasil resmi diinput.`
+    + (CFG.TERMS_URL ? `<br><a href="${esc(CFG.TERMS_URL)}" target="_blank" rel="noopener">Syarat & Ketentuan</a>` : '');
+}
+
+function render() { renderTebak(); renderFoot(); }
+
+function share() {
+  const gf = S.matches.find(m => m.id === 8), p = gf && S.picks[8];
+  const line = p ? ` Grand Final versi aku: ${label(gf, 'a')} ${p.pick_a}–${p.pick_b} ${label(gf, 'b')}.` : '';
+  const text = `Aku udah isi Pick'em Playoff MPL ID S18${CFG.SPONSOR ? ` by ${CFG.SPONSOR}` : ''}.${line} Berani adu tebakan? ${location.origin + location.pathname}`;
+  track('pickem_share');
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+}
+
+/* ---------- Events ---------- */
+document.addEventListener('click', async e => {
+  const t = e.target.closest('button,[data-goto]');
+  if (!t) return;
+  if (t.dataset.pick) { const [id, a, b] = t.dataset.pick.split(',').map(Number); pick(id, a, b); }
+  else if (t.dataset.joker) { const id = +t.dataset.joker, p = S.picks[id]; save(id, p.pick_a, p.pick_b, !p.is_joker); }
+  else if (t.dataset.tab || t.dataset.goto) {
+    const tab = t.dataset.tab || t.dataset.goto;
+    document.querySelectorAll('[data-tab]').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
+    $('#tebak').hidden = tab !== 'tebak'; $('#klasemen').hidden = tab !== 'klasemen';
+    if (tab === 'klasemen') { track('pickem_board', { tab: S.board === 'day' ? 'harian' : 'global' }); renderBoard(); }
+  }
+  else if (t.dataset.board) {
+    S.board = t.dataset.board;
+    document.querySelectorAll('[data-board]').forEach(b => b.setAttribute('aria-pressed', b.dataset.board === S.board));
+    track('pickem_board', { tab: S.board === 'day' ? 'harian' : 'global' });
+    renderBoard();
+  }
+  else if ('boardRetry' in t.dataset) renderBoard();
+  else if ('retry' in t.dataset) load();
+  else if ('share' in t.dataset) share();
+  else if ('login' in t.dataset) $('#login').showModal();
+  else if ('logout' in t.dataset) { await sb.auth.signOut(); }
+  else if ('delete' in t.dataset) {
+    if (!confirm('Hapus akun dan semua tebakanmu? Ini tidak bisa dibatalkan.')) return;
+    const { error } = await sb.rpc('delete_my_account');
+    if (error) return toast('Gagal menghapus. Coba lagi.');
+    await sb.auth.signOut(); toast('Akun dan data kamu sudah dihapus.');
+  }
+});
+$('#google').onclick = login;
+$('#later').onclick = () => { localStorage.removeItem('pk_pending'); $('#login').close(); };
+
+// Jangan await panggilan supabase di dalam callback auth (bisa deadlock) → setTimeout.
+sb.auth.onAuthStateChange((ev, session) => {
+  if (ev === 'TOKEN_REFRESHED' || ev === 'USER_UPDATED') return;
+  S.user = session?.user || null;
+  if (ev === 'INITIAL_SESSION') track('pickem_view', { logged_in: !!S.user });
+  setTimeout(afterAuth);
+});
+async function afterAuth() {
+  if (S.user && localStorage.getItem('pk_login')) { localStorage.removeItem('pk_login'); track('pickem_login'); }
+  await load();
+  const pending = S.user && JSON.parse(localStorage.getItem('pk_pending') || 'null');
+  if (pending) {
+    localStorage.removeItem('pk_pending');
+    const m = S.matches.find(x => x.id === pending.id);
+    if (m && !isLocked(m)) { await save(pending.id, pending.a, pending.b, false); document.getElementById(`m${pending.id}`)?.scrollIntoView({ block: 'center' }); }
+  }
+  if (!$('#klasemen').hidden) renderBoard();
+}
+setInterval(() => { if (!Object.values(S.busy).some(Boolean)) render(); }, 30000); // kunci tombol tepat waktu
+document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); }); // balik ke tab = data segar
+</script>
+</body>
+</html>
