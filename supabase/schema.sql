@@ -38,6 +38,13 @@ create table public.pick_resets (
   reset_at timestamptz not null default now()
 );
 
+-- Nama publik dihitung sekali (bukan tiap refresh klasemen).
+create table public.players (
+  user_id uuid primary key references auth.users on delete cascade,
+  name    text not null
+);
+
+alter table public.players     enable row level security;
 alter table public.matches     enable row level security;
 alter table public.predictions enable row level security;
 alter table public.pick_resets enable row level security;
@@ -46,7 +53,7 @@ create policy matches_read on public.matches for select using (true);
 create policy own_predictions on public.predictions for select to authenticated using (user_id = auth.uid());
 create policy own_resets on public.pick_resets for select to authenticated using (user_id = auth.uid());
 
-revoke all on public.matches, public.predictions, public.pick_resets from anon, authenticated;
+revoke all on public.players, public.matches, public.predictions, public.pick_resets from anon, authenticated;
 grant select on public.matches to anon, authenticated;
 grant select on public.predictions, public.pick_resets to authenticated;
 -- Tulis tebakan hanya lewat save_prediction(); tulis hasil hanya admin (Table Editor = service role).
@@ -87,6 +94,9 @@ begin
     where user_id = uid and is_joker and match_id <> p_match
   ) then raise exception 'Joker sudah dipakai di match lain'; end if;
 
+  insert into public.players (user_id, name)
+  select uid, public.public_name(raw_user_meta_data) from auth.users where id = uid
+  on conflict (user_id) do nothing;
   select exists (select 1 from public.predictions where user_id = uid and match_id = p_match) into existed;
   insert into public.predictions (user_id, match_id, pick_a, pick_b, is_joker)
   values (uid, p_match, p_a, p_b, p_joker)
@@ -101,6 +111,10 @@ language plpgsql security definer set search_path = public as $$
 declare
   winner text; loser text; d public.matches; new_a text; new_b text;
 begin
+  insert into public.board_dirty values
+    (to_char(new.starts_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD')),
+    (to_char(old.starts_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD'))
+  on conflict do nothing;
   if new.void and not old.void then
     update public.predictions set is_joker = false where match_id = new.id; -- Joker dikembalikan
   end if;
@@ -132,56 +146,105 @@ for each row when (old.* is distinct from new.*) execute function public.on_matc
 -- "Budi Santoso" → "Budi S.", kosong → "Pemain". Email tidak pernah keluar.
 create function public.public_name(meta jsonb) returns text
 language sql immutable as $$
-  with n as (select regexp_split_to_array(btrim(coalesce(nullif(meta->>'full_name',''), meta->>'name', '')), '\s+') w)
   select case
-    when w[1] = '' then 'Pemain'
-    when array_length(w, 1) = 1 then w[1]
-    else w[1] || ' ' || upper(left(w[array_length(w, 1)], 1)) || '.'
-  end from n
+    when n = '' then 'Pemain'
+    when strpos(n, ' ') = 0 then n
+    else split_part(n, ' ', 1) || ' ' || upper(left(reverse(split_part(reverse(n), ' ', 1)), 1)) || '.'
+  end
+  from (select regexp_replace(btrim(coalesce(nullif(meta->>'full_name', ''), meta->>'name', '')), '\s+', ' ', 'g') as n) x
 $$;
 
--- Top 100 + baris saya (walau di luar top 100). p_day null = global, isi tanggal WIB = harian.
-create function public.leaderboard(p_day date default null)
-returns table (rank bigint, name text, points int, exact int, picks int, is_me boolean)
-language sql stable security definer set search_path = public as $$
-  with s as (
+-- Klasemen & distribusi = snapshot. Dihitung ulang tiap menit oleh pg_cron (refresh_all),
+-- jadi ribuan orang buka Klasemen cuma baca index, bukan agregasi seluruh tebakan.
+create table public.board (
+  scope   text not null,               -- 'global' atau tanggal WIB 'YYYY-MM-DD'
+  user_id uuid not null,               -- tanpa FK: insert 50rb baris/menit jadi jauh lebih murah
+  rank    int not null,
+  name    text not null,
+  points  int not null,
+  exact   int not null,
+  picks   int not null,
+  primary key (scope, user_id)
+);
+create index board_rank on public.board (scope, rank);
+create table public.board_dirty (scope text primary key); -- hari yang skornya dikoreksi
+create table public.stats (match_id smallint primary key references public.matches, total int not null, pct_a int not null);
+alter table public.board enable row level security;
+alter table public.board_dirty enable row level security;
+alter table public.stats enable row level security;
+revoke all on public.board, public.board_dirty, public.stats from anon, authenticated;
+
+-- Tiebreak: poin → skor tepat → yang lebih dulu mengunci tebakan terakhirnya.
+create function public.refresh_board(p_scope text) returns void
+language sql security definer set search_path = public set work_mem = '32MB' as $$
+  delete from public.board where scope = p_scope;
+  insert into public.board (scope, user_id, rank, name, points, exact, picks)
+  select p_scope, s.user_id,
+         row_number() over (order by s.points desc, s.exact desc, s.last_lock asc, s.user_id),
+         pl.name, s.points, s.exact, s.picks
+  from (
     select p.user_id,
            coalesce(sum(p.points), 0)::int as points,
            count(*) filter (where m.score_a = p.pick_a and m.score_b = p.pick_b and not m.void)::int as exact,
            count(*)::int as picks,
            max(p.updated_at) as last_lock
     from public.predictions p join public.matches m on m.id = p.match_id
-    where p_day is null or (m.starts_at at time zone 'Asia/Jakarta')::date = p_day
+    where p_scope = 'global' or to_char(m.starts_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD') = p_scope
     group by p.user_id
-  ), r as (
-    select row_number() over (order by s.points desc, s.exact desc, s.last_lock asc, s.user_id) as rank, s.*
-    from s
-  )
-  select r.rank, public.public_name(u.raw_user_meta_data), r.points, r.exact, r.picks, r.user_id is not distinct from auth.uid()
-  from r join auth.users u on u.id = r.user_id
-  where r.rank <= 100 or r.user_id = auth.uid()
-  order by r.rank
+  ) s join public.players pl on pl.user_id = s.user_id;
 $$;
 
--- Distribusi pilihan, hanya untuk match yang sudah terkunci (F8).
+create function public.refresh_all() returns void
+language plpgsql security definer set search_path = public as $$
+declare s text;
+begin
+  perform public.refresh_board('global');
+  perform public.refresh_board(to_char(now() at time zone 'Asia/Jakarta', 'YYYY-MM-DD'));
+  for s in delete from public.board_dirty returning scope loop perform public.refresh_board(s); end loop;
+  -- Distribusi hanya untuk match yang sudah terkunci (F8): tidak memengaruhi tebakan orang lain.
+  delete from public.stats;
+  insert into public.stats
+  select p.match_id, count(*), round(100.0 * count(*) filter (where p.pick_a > p.pick_b) / count(*))
+  from public.predictions p join public.matches m on m.id = p.match_id
+  where now() >= m.starts_at
+  group by p.match_id;
+end $$;
+
+-- Top 100 + baris saya (walau di luar top 100). p_day null = global.
+create function public.leaderboard(p_day date default null)
+returns table (rank int, name text, points int, exact int, picks int, is_me boolean)
+language sql stable security definer set search_path = public as $$
+  select b.rank, b.name, b.points, b.exact, b.picks, b.user_id is not distinct from auth.uid()
+  from public.board b
+  where b.scope = coalesce(to_char(p_day, 'YYYY-MM-DD'), 'global')
+    and (b.rank <= 100 or b.user_id = auth.uid())
+  order by b.rank
+$$;
+
 create function public.pick_stats()
 returns table (match_id smallint, total int, pct_a int)
 language sql stable security definer set search_path = public as $$
-  select p.match_id, count(*)::int, round(100.0 * count(*) filter (where p.pick_a > p.pick_b) / count(*))::int
-  from public.predictions p join public.matches m on m.id = p.match_id
-  where now() >= m.starts_at
-  group by p.match_id
+  select match_id, total, pct_a from public.stats
 $$;
 
 -- UU PDP: hapus akun & semua tebakan.
 create function public.delete_my_account() returns void
 language sql security definer set search_path = public, auth as $$
+  delete from public.board where user_id = auth.uid();
   delete from auth.users where id = auth.uid();
 $$;
 
 revoke execute on all functions in schema public from public, anon;
 grant execute on function public.leaderboard(date), public.pick_stats() to anon, authenticated;
 grant execute on function public.save_prediction(smallint, smallint, smallint, boolean), public.delete_my_account() to authenticated;
+
+-- Refresh snapshot tiap menit. Supabase: pg_cron tersedia di semua plan.
+do $$ begin
+  create extension if not exists pg_cron;
+  perform cron.schedule('pickem-refresh', '* * * * *', 'select public.refresh_all()');
+exception when others then
+  raise notice 'pg_cron belum aktif: Database > Extensions > pg_cron, lalu jalankan ulang blok ini';
+end $$;
 
 -- Jadwal. starts_at = batas tebak. Untuk time_tbc=true sengaja dipasang 12.00 WIB (lebih awal = aman):
 -- begitu jam resmi keluar, update starts_at dan set time_tbc=false.
@@ -194,3 +257,5 @@ insert into public.matches (id, round, best_of, starts_at, time_tbc, team_a, tea
  (6, 'Upper Final',     5, '2026-11-06 12:00+07', true,  null, null, 'W3', 'W4'),
  (7, 'Lower Final',     7, '2026-11-07 12:00+07', true,  null, null, 'L6', 'W5'),
  (8, 'Grand Final',     7, '2026-11-08 12:00+07', true,  null, null, 'W6', 'W7');
+
+select public.refresh_all();

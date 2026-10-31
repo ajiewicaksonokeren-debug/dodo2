@@ -223,6 +223,7 @@ const scoresFor = bo => { const w = (bo + 1) / 2; return Array.from({ length: w 
 
 /* ---------- Data ---------- */
 async function load() {
+  S.loadedAt = Date.now();
   const [m, st] = await Promise.all([sb.from('matches').select('*').order('id'), sb.rpc('pick_stats')]);
   if (m.error) { S.loadErr = true; return render(); }
   S.loadErr = false;
@@ -360,7 +361,9 @@ async function renderBoard() {
     : me
       ? `<div class="card me"><div class="sub">Peringkatmu ${day ? 'hari ini' : ''}</div><div class="big">#${me.rank.toLocaleString('id-ID')} · ${me.points} poin</div>
          <div class="sub">${me.exact} skor tepat · ${me.picks} tebakan</div>${dayLabel}</div>`
-      : `<div class="card me"><div class="sub">Peringkatmu</div><div class="big">Belum menebak</div>${dayLabel}<button class="btn primary" data-goto="tebak">Isi tebakan</button></div>`;
+      : Object.keys(S.picks).length
+        ? `<div class="card me"><div class="sub">Peringkatmu</div><div class="big">Sedang dihitung</div><div class="sub">Klasemen diperbarui tiap menit. Cek lagi sebentar.</div>${dayLabel}</div>`
+        : `<div class="card me"><div class="sub">Peringkatmu</div><div class="big">Belum menebak</div>${dayLabel}<button class="btn primary" data-goto="tebak">Isi tebakan</button></div>`;
   if (!top.length) return el.innerHTML = meCard + `<div class="card empty">Belum ada yang menebak. Jadilah yang pertama.</div>`;
   const row = r => `<div class="row ${r.rank <= 3 ? 'top' : ''} ${r.is_me ? 'mine' : ''}"><span class="rk">#${r.rank}</span>
     <span class="nm">${esc(r.name)}${r.is_me ? ' (kamu)' : ''}<small>${r.exact} skor tepat</small></span><span class="pt">${r.points}</span></div>`;
@@ -441,8 +444,14 @@ async function afterAuth() {
   }
   if (!$('#klasemen').hidden) renderBoard();
 }
-setInterval(() => { if (!Object.values(S.busy).some(Boolean)) render(); }, 30000); // kunci tombol tepat waktu
-document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); }); // balik ke tab = data segar
+// Render ulang hanya saat ada match yang baru terkunci (tidak ada request, fokus keyboard tidak hilang).
+let lockSig = '';
+setInterval(() => {
+  const sig = S.matches.map(isLocked).join();
+  if (sig !== lockSig && !Object.values(S.busy).some(Boolean)) { lockSig = sig; render(); }
+}, 15000);
+// Balik ke tab = data segar, maksimal sekali per menit per orang (data server memang berubah per menit).
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - (S.loadedAt || 0) > 60000) load(); });
 </script>
 </body>
 </html>
