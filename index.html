@@ -80,8 +80,9 @@ button:disabled{cursor:not-allowed}
 .bar i{background:var(--blue)}
 .dist small{display:flex;justify-content:space-between;margin-top:4px;font-size:12px;color:var(--muted);font-weight:600}
 
-.ad:empty{display:none}
-.ad{margin:16px 0}
+.ad{margin:20px 0;padding:10px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);min-height:0}
+.ad::before{content:'Iklan';display:block;font-size:11px;font-weight:600;color:var(--muted);text-align:center;margin-bottom:6px}
+.ad:empty,.ad:has(ins[data-ad-status=unfilled]){display:none} /* slot kosong / AdSense tidak terisi = tidak memakan ruang */
 
 .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:48px;border-radius:12px;font-weight:700}
 .btn.primary{background:linear-gradient(160deg,#4D7DFF,#1D5BFF 55%,#0F47E0);color:#fff;box-shadow:0 14px 28px -12px rgba(29,91,255,.6)}
@@ -142,7 +143,7 @@ dialog .btn+.btn{margin-top:8px}
 
   <main id="tebak">
     <div id="list-a"></div>
-    <!-- SLOT A: tempel kode iklan di dalam div ini. Kosong = tidak memakan ruang. -->
+    <!-- SLOT A (setelah M2): diisi otomatis dari CFG.ADSENSE_SLOT_A. -->
     <div class="ad" id="slot-a"></div>
     <div id="list-b"></div>
   </main>
@@ -152,7 +153,7 @@ dialog .btn+.btn{margin-top:8px}
       <button aria-pressed="false" data-board="day">Hari ini</button>
     </div>
     <div id="board"></div>
-    <!-- SLOT B: tempel kode iklan di dalam div ini (tampil setelah rank 10). -->
+    <!-- SLOT B (setelah rank 10): diisi otomatis dari CFG.ADSENSE_SLOT_B. -->
     <div class="ad" id="slot-b" hidden></div>
     <div id="board-rest"></div>
   </main>
@@ -176,6 +177,9 @@ const CFG = {
   GA_ID: '',        // 'G-XXXX' kalau subdomain belum ikut GA esportsku
   SPONSOR: '',      // 'Brand X' → "Pick'em MPL by Brand X" + disebut di pesan WA
   TERMS_URL: '',    // isi kalau ada hadiah (S&K wajib)
+  ADSENSE_CLIENT: '', // 'ca-pub-1234567890123456' (AdSense → Akun → Informasi akun)
+  ADSENSE_SLOT_A: '', // ID unit iklan Display responsif #1 (AdSense → Iklan → Menurut unit iklan)
+  ADSENSE_SLOT_B: '', // ID unit iklan Display responsif #2
   DAYS: ['2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08'],
 };
 
@@ -214,6 +218,17 @@ if (IN_APP) showInApp();
 // Di-embed di artikel (iframe): Google menolak login di dalam iframe → pindah ke halaman penuh bawa tebakannya.
 const FRAMED = window.top !== window.self;
 const handoff = new URLSearchParams(location.search).get('pick');
+// AdSense: tiap slot dimuat SEKALI saat pertama kali terlihat (unit di elemen tersembunyi gagal; refresh = melanggar kebijakan).
+// Tidak dimuat saat di-embed di artikel: halaman artikel sudah punya iklannya sendiri.
+const ADS = !!CFG.ADSENSE_CLIENT && !FRAMED;
+if (ADS) document.head.append(Object.assign(document.createElement('script'), {
+  async: true, crossOrigin: 'anonymous', src: `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${CFG.ADSENSE_CLIENT}` }));
+function fillAd(el, slot) {
+  if (!ADS || !slot || el.dataset.filled) return;
+  el.dataset.filled = '1';
+  el.innerHTML = `<ins class="adsbygoogle" style="display:block" data-ad-client="${esc(CFG.ADSENSE_CLIENT)}" data-ad-slot="${esc(slot)}" data-ad-format="auto" data-full-width-responsive="true"></ins>`;
+  try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) { /* adblock: biarkan kosong */ }
+}
 if (handoff) { localStorage.setItem('pk_pending', handoff); history.replaceState(null, '', location.pathname); }
 
 const nameOf = u => {
@@ -380,7 +395,7 @@ async function renderBoard() {
     <span class="nm">${esc(r.name)}${r.is_me ? ' (kamu)' : ''}<small>${r.exact} skor tepat</small></span><span class="pt">${r.points}</span></div>`;
   const first = top.slice(0, 10).map(row).join(''), rest = top.slice(10).map(row).join('');
   el.innerHTML = meCard + `<div class="card rows">${first}</div>`;
-  $('#slot-b').hidden = false;
+  $('#slot-b').hidden = false; fillAd($('#slot-b'), CFG.ADSENSE_SLOT_B);
   $('#board-rest').innerHTML = (rest ? `<div class="card rows">${rest}</div>` : '')
     + (me && me.rank > 100 ? `<div class="card rows"><div class="gap">⋯</div>${row(me)}</div>` : '');
 }
@@ -394,7 +409,7 @@ function renderFoot() {
     + (CFG.TERMS_URL ? `<br><a href="${esc(CFG.TERMS_URL)}" target="_blank" rel="noopener">Syarat & Ketentuan</a>` : '');
 }
 
-function render() { renderTebak(); renderFoot(); }
+function render() { renderTebak(); renderFoot(); if (S.matches.length) fillAd($('#slot-a'), CFG.ADSENSE_SLOT_A); }
 
 function share() {
   const gf = S.matches.find(m => m.id === 8), p = gf && S.picks[8];

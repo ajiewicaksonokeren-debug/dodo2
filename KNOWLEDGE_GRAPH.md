@@ -17,8 +17,9 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 | `page:pickem` | page | index.html | Tab Tebak + Klasemen, login sheet, footer akun |
 | `ui:match-card` | ui | index.html `matchCard()` | 8 state card (belum login, TBD, tersimpan, terkunci+distribusi, selesai+poin, void, reset, error) |
 | `ui:board` | ui | index.html `renderBoard()` | Kartu rank saya + top 100, Global / Hari ini (tanggal WIB, di-clamp ke 4–8 Nov) |
-| `ui:slot-a` | ad | index.html `#slot-a` | Iklan statis setelah M2; kosong = hilang; tidak ikut re-render (tidak refresh) |
-| `ui:slot-b` | ad | index.html `#slot-b` | Iklan setelah rank 10; disembunyikan saat klasemen kosong/gagal |
+| `ui:slot-a` | ad | index.html `#slot-a` + `fillAd()` | AdSense unit `CFG.ADSENSE_SLOT_A` setelah M2; dimuat sekali saat pertama terlihat, tidak pernah di-refresh |
+| `ui:slot-b` | ad | index.html `#slot-b` + `fillAd()` | AdSense unit `CFG.ADSENSE_SLOT_B` setelah rank 10; dimuat saat Klasemen pertama kali tampil. Tidak terisi → slot hilang. Di iframe → AdSense tidak dimuat |
+| `test:attack` | test | supabase/tests/attack.sql | 27 skenario curang dalam BEGIN…ROLLBACK; semua harus 'AMAN' |
 | `ui:in-app-banner` | ui | index.html `showInApp()` | Instagram/FB/TikTok/LINE/WA in-app → "Buka di Chrome" (intent Android) / "Buka di Safari" |
 | `cfg` | config | index.html `CFG` | SUPABASE_URL, SUPABASE_KEY (anon), GA_ID, SPONSOR, TERMS_URL, DAYS |
 | `table:matches` | table | supabase/schema.sql | Jadwal, BO, `starts_at` (= kunci), `time_tbc`, tim, `src_a/b` (W1/L3), skor, `void` |
@@ -67,6 +68,11 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 - Dialog login ditutup tanpa login (Esc / Nanti saja) → tebakan tertunda dibuang (tidak tersimpan diam-diam saat login berikutnya).
 - Auto-save setelah login tidak mengecek jam di browser; server yang menolak kalau sudah terkunci, pesannya tampil di card. Joker lama di match itu dipertahankan.
 
+## Uji kecurangan (2026-11-01, lokal, stub meniru default privileges Supabase)
+
+27/27 AMAN: insert/update/delete langsung, poin palsu, tebak atas nama orang lain, intip tebakan orang, tebak/ganti setelah kunci, skor mustahil/seri/negatif/NULL, match TBD/tidak ada, Joker kedua, race 2 Joker bersamaan ×20 (unique index), ubah/buat match, ubah snapshot klasemen, baca players/auth.users, spam refresh_all/refresh_board, hapus akun orang lain, akun email, anon menebak/membaca, distribusi bocor setelah jadwal diundur (diperbaiki: pick_stats cek kunci saat dibaca).
+Belum dicegah (bukan pelanggaran aturan, tapi penyalahgunaan): multi-akun Google (PRD: dicek saat verifikasi hadiah); spam save_prediction dari akun sah (tidak ada rate limit per user — ~1 ms/panggilan, hanya mengubah baris miliknya sendiri).
+
 ## Celah yang diketahui (belum diperbaiki, sengaja)
 
 - Jam device lebih cepat dari jam server → tombol mati lebih awal dari seharusnya (server tetap benar; tidak bisa curang, hanya kehilangan beberapa menit). Perbaikan butuh offset jam server.
@@ -79,7 +85,10 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 3. Auth → URL Configuration: Site URL + Redirect URLs = URL subdomain = `https://tebak.esportsku.com/`.
 4. `CFG.SUPABASE_URL` + `CFG.SUPABASE_KEY` sudah terisi project di atas; isi `GA_ID` kalau subdomain belum ikut GA esportsku.
 5. Upload `index.html` ke host statis subdomain (Cloudflare Pages / Vercel / Netlify / folder di server WP).
-6. Tempel kode iklan ke `#slot-a` dan `#slot-b`.
+6. AdSense: isi `CFG.ADSENSE_CLIENT` (ca-pub-…), `ADSENSE_SLOT_A`, `ADSENSE_SLOT_B` (2 unit Display responsif). Lalu:
+   - Pastikan `esportsku.com/ads.txt` memuat baris `google.com, pub-…, DIRECT, f08c47fec0942fa0` (subdomain ikut ads.txt domain utama).
+   - Auto ads: matikan untuk `tebak.esportsku.com` (AdSense → Iklan → Menurut situs → Pengecualian halaman). Auto ads bisa menaruh iklan menempel di tombol skor = risiko klik tidak sengaja → akun dibanned.
+   - Jangan pasang Monetag popunder/push di subdomain yang sama dengan AdSense (kebijakan AdSense soal pop-up).
 7. Kalau saat jalankan schema muncul NOTICE pg_cron: Database → Extensions → aktifkan pg_cron, lalu jalankan ulang blok `do $$ … cron.schedule …`. Tanpa ini klasemen tidak pernah update.
 
 ## Operasional admin

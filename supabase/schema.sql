@@ -232,7 +232,9 @@ $$;
 create function public.pick_stats()
 returns table (match_id smallint, total int, pct_a int)
 language sql stable security definer set search_path = public as $$
-  select match_id, total, pct_a from public.stats
+  -- Filter kunci dicek lagi saat dibaca: kalau jadwal diundur setelah sempat terkunci, distribusi langsung tertutup lagi.
+  select s.match_id, s.total, s.pct_a from public.stats s join public.matches m on m.id = s.match_id
+  where now() >= m.starts_at
 $$;
 
 -- UU PDP: hapus akun & semua tebakan.
