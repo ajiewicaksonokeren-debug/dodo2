@@ -80,6 +80,10 @@ declare
   win smallint;
 begin
   if uid is null then raise exception 'Masuk dulu untuk menyimpan' using errcode = '28000'; end if;
+  -- Hanya akun Google (satu akun per orang + data pemenang). Email/anonymous sign-up ditolak walau provider lain lupa dimatikan.
+  if not exists (select 1 from auth.users where id = uid and raw_app_meta_data->'providers' ? 'google') then
+    raise exception 'Hanya bisa masuk pakai Google' using errcode = '28000';
+  end if;
   select * into m from public.matches where id = p_match;
   if not found then raise exception 'Match tidak ada'; end if;
   if m.team_a is null or m.team_b is null then raise exception 'Dibuka setelah lawan ditentukan'; end if;
