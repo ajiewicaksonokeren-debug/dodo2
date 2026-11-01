@@ -8,12 +8,18 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 
 - Frontend: `index.html` satu file, vanilla JS, `@supabase/supabase-js@2.45.4` UMD dari jsDelivr, font Plus Jakarta Sans. Host statis di subdomain (atau tempel di blok Custom HTML WP — sama saja).
 - Backend: Supabase (free tier): Auth Google + Postgres. Semua aturan di DB; browser hanya menampilkan.
-- Admin: Supabase Table Editor → tabel `matches` (service role, trigger tetap jalan).
+- Admin: halaman `/admin/` (RLS: hanya kolom score_a, score_b, starts_at, time_tbc, void, hanya email di `admins`). Table Editor Supabase tetap bisa, tapi hanya untuk owner.
 
 ## Nodes
 
 | ID | Tipe | Path | Tanggung jawab |
 |---|---|---|---|
+| `page:admin` | page | admin/index.html | `/admin/`: login Google → `is_admin()`; metrik tes, hasil/jadwal/void per match (dropdown skor valid + konfirmasi + peringatan koreksi), pengumuman, log |
+| `table:admins` | table | supabase/schema.sql | Email Google admin (lowercase). Hanya diisi lewat SQL Editor |
+| `fn:is_admin` | sql | supabase/schema.sql | Email user ada di `admins` DAN login Google (email login lain ditolak) |
+| `table:admin_log` | table | supabase/schema.sql | Trigger `match_log`: siapa/kapan/sebelum→sesudah tiap perubahan match (termasuk perubahan otomatis bracket) |
+| `table:save_days` | table | supabase/schema.sql | Hari WIB pemain menyimpan tebakan → metrik "kembali ≥2 hari" |
+| `fn:admin_metrics` | rpc | supabase/schema.sql | Pemain, tebakan, kembali ≥2 hari, main hari ini, Joker, tebakan per match; non-admin ditolak |
 | `page:pickem` | page | index.html | Tab Tebak + Klasemen, login sheet, footer akun |
 | `ui:match-card` | ui | index.html `matchCard()` | 8 state card (belum login, TBD, tersimpan, terkunci+distribusi, selesai+poin, void, reset, error) |
 | `ui:board` | ui | index.html `renderBoard()` | Kartu rank saya + top 100, Global / Hari ini (tanggal WIB, di-clamp ke 4–8 Nov) |
@@ -45,7 +51,8 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 
 - `page:pickem` → reads `table:matches` (anon), `table:predictions` + `table:pick_resets` (RLS: milik sendiri), calls `fn:pick_stats`, `fn:leaderboard`, `fn:save_prediction`, `fn:delete_my_account`.
 - `admin` → writes `table:matches` → triggers `fn:on_match_change` → writes `table:predictions.points`, `table:matches.team_*` (rekursif ke babak berikut), `table:pick_resets`, `table:board_dirty`.
-- `fn:save_prediction` → writes `table:predictions`, `table:players`.
+- `fn:save_prediction` → writes `table:predictions`, `table:players`, `table:save_days`.
+- `page:admin` → updates `table:matches` (guarded-by `matches_admin_update` + `fn:is_admin`) → triggers `fn:on_match_change` + `match_log` → `table:admin_log`; writes `table:announcements`; reads `fn:admin_metrics`, `table:admin_log`.
 - `job:pickem-refresh` → reads `table:predictions`, `table:matches`, `table:players`, `table:board_dirty` → writes `table:board`, `table:stats`.
 - `fn:champions` → reads `table:board`, `table:matches`; `page:pickem` → reads `table:announcements`.
 - `fn:leaderboard` → reads `table:board`; `fn:pick_stats` → reads `table:stats`.
@@ -73,12 +80,16 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 
 ## Uji kecurangan (2026-11-01, lokal, stub meniru default privileges Supabase)
 
-29/29 AMAN (termasuk tulis pengumuman palsu & intip draft): insert/update/delete langsung, poin palsu, tebak atas nama orang lain, intip tebakan orang, tebak/ganti setelah kunci, skor mustahil/seri/negatif/NULL, match TBD/tidak ada, Joker kedua, race 2 Joker bersamaan ×20 (unique index), ubah/buat match, ubah snapshot klasemen, baca players/auth.users, spam refresh_all/refresh_board, hapus akun orang lain, akun email, anon menebak/membaca, distribusi bocor setelah jadwal diundur (diperbaiki: pick_stats cek kunci saat dibaca).
+33/33 AMAN (termasuk pengumuman palsu, draft, metrik/log admin, ubah tim/best_of, daftar diri jadi admin; peniru email admin via login email ditolak): insert/update/delete langsung, poin palsu, tebak atas nama orang lain, intip tebakan orang, tebak/ganti setelah kunci, skor mustahil/seri/negatif/NULL, match TBD/tidak ada, Joker kedua, race 2 Joker bersamaan ×20 (unique index), ubah/buat match, ubah snapshot klasemen, baca players/auth.users, spam refresh_all/refresh_board, hapus akun orang lain, akun email, anon menebak/membaca, distribusi bocor setelah jadwal diundur (diperbaiki: pick_stats cek kunci saat dibaca).
 Belum dicegah (bukan pelanggaran aturan, tapi penyalahgunaan): multi-akun Google (PRD: dicek saat verifikasi hadiah); spam save_prediction dari akun sah (tidak ada rate limit per user — ~1 ms/panggilan, hanya mengubah baris miliknya sendiri).
 
 ## Keputusan iklan
 
 - 6 slot (3 per tab), bukan 2 seperti PRD — permintaan owner 2026-11-01. Batas yang dipegang: tidak pernah di dalam card / bersebelahan tombol skor, hanya di jeda antar hari/blok, tidak refresh. Estimasi PRD: 2 slot ≈ $22 di 5rb pemain (eCPM $1); 6 slot kira-kira $40–50 karena slot bawah jarang terlihat. Pantau metrik 'kembali lagi' — kalau turun, kurangi slot (hapus entri di `TEBAK_ADS` / sembunyikan `board-50`).
+
+## Keputusan: admin panel statis, bukan Next.js (2026-11-01)
+
+Owner bertanya kenapa tidak CMS/Next.js. Admin panel memang perlu (PIC skor tidak boleh pegang dashboard Supabase = akses penuh DB; perlu jejak siapa ubah skor). Next.js ditolak: 3 hari sebelum playoff, menambah build + server + hosting kedua tanpa fitur tambahan — hak akses tetap harus dijaga di database. Kalau setelah tes (10 Nov) diputuskan lanjut ke Tebak Skor penuh (multi-turnamen, banyak admin, editor konten), saat itulah pindah ke Next.js.
 
 ## Arsitektur: kenapa satu file HTML
 
@@ -93,7 +104,8 @@ Belum dicegah (bukan pelanggaran aturan, tapi penyalahgunaan): multi-akun Google
 
 1. Project: `esportsku-pickem` (ref `lmdpgbzwlrsbrylljpmp`, Singapore), sudah aktif lagi 2026-11-01. SQL Editor → tempel seluruh `supabase/schema.sql` → Run. File ini sekalian menghapus tabel prototipe lama (kosong).
 2. Auth → Providers → Google: isi Client ID/Secret dari Google Cloud (OAuth consent: External, publish). Redirect URI di Google = `https://<ref>.supabase.co/auth/v1/callback`.
-3. Auth → URL Configuration: Site URL + Redirect URLs = URL subdomain = `https://tebak.esportsku.com/`.
+3. Auth → URL Configuration: Site URL = `https://tebak.esportsku.com/`, Redirect URLs = `https://tebak.esportsku.com/**` (tool + `/admin/`).
+3b. Daftarkan admin (owner + PIC skor tiap hari) di SQL Editor: `insert into public.admins values ('nama@gmail.com');` (huruf kecil). Hapus: `delete from public.admins where email = '…';`
 4. `CFG.SUPABASE_URL` + `CFG.SUPABASE_KEY` sudah terisi project di atas; isi `GA_ID` kalau subdomain belum ikut GA esportsku.
 5. Upload `index.html` ke host statis subdomain (Cloudflare Pages / Vercel / Netlify / folder di server WP).
 6. AdSense: isi `CFG.ADSENSE_CLIENT` (ca-pub-…) + `ADSENSE_SLOT` (1 unit Display responsif dipakai semua posisi; boleh ID khusus per posisi di `ADSENSE_SLOTS` untuk laporan per posisi). Posisi Tebak diatur di `CFG.TEBAK_ADS`. Lalu:
@@ -104,11 +116,13 @@ Belum dicegah (bukan pelanggaran aturan, tapi penyalahgunaan): multi-akun Google
 
 ## Operasional admin
 
-- Hasil: Table Editor → `matches` → isi `score_a`, `score_b` (skor pemenang harus = (BO+1)/2, kalau tidak DB menolak).
-- Jam resmi keluar: update `starts_at`, set `time_tbc=false`. Sekarang M3–M8 dipasang 12.00 WIB sebagai batas aman (lebih baik tutup kecepetan daripada orang bisa nebak setelah match mulai).
-- Pengumuman: Table Editor → `announcements` → Insert row (`body`, opsional `link` https). Tarik: set `active=false`. Tampil di tool saat halaman dibuka / balik ke tab.
+Semua lewat `https://tebak.esportsku.com/admin/` (login Google admin). PIC skor tidak perlu akses dashboard Supabase.
+
+- Hasil: pilih dari dropdown (hanya skor valid) → Simpan → konfirmasi.
+- Jam resmi keluar: ubah jam (WIB) + hilangkan centang "Jam belum resmi". Sekarang M3–M8 dipasang 12.00 WIB sebagai batas aman (lebih baik tutup kecepetan daripada orang bisa nebak setelah match mulai).
+- Pengumuman: bagian Pengumuman di `/admin/` → Terbitkan / Tarik. Tampil di tool saat halaman dibuka / balik ke tab.
 - Juara harian & global tampil sendiri (≤1 menit setelah skor terakhir hari itu diisi). Konten/sosial tinggal ambil dari kartu Pengumuman.
-- Walkover/batal: `void=true` (isi skor juga kalau ada pemenang supaya bracket jalan).
+- Walkover/batal: centang Void (isi hasil juga kalau ada pemenang supaya bracket jalan).
 - Koreksi skor: edit skor lagi; kalau tim babak berikut berubah, tebakan match itu terhapus dan pemain lihat pesan di card.
 
 ## Temuan / keputusan
