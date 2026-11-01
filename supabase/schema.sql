@@ -237,6 +237,33 @@ language sql stable security definer set search_path = public as $$
   where now() >= m.starts_at
 $$;
 
+-- Pengumuman admin (Table Editor → announcements): jadwal diundur, info hadiah, dsb. Yang aktif tampil di atas tool.
+create table public.announcements (
+  id         bigint generated always as identity primary key,
+  body       text not null check (length(body) between 1 and 280),
+  link       text check (link ~ '^https://'),
+  active     boolean not null default true,
+  created_at timestamptz not null default now()
+);
+alter table public.announcements enable row level security;
+create policy announcements_read on public.announcements for select using (active);
+revoke all on public.announcements from anon, authenticated;
+grant select on public.announcements to anon, authenticated;
+
+-- Juara otomatis: harian = rank 1 hari itu setelah semua match hari itu selesai; global = rank 1 setelah match terakhir selesai.
+create function public.champions()
+returns table (scope text, name text, points int)
+language sql stable security definer set search_path = public as $$
+  select b.scope, b.name, b.points from public.board b
+  where b.rank = 1 and (
+    (b.scope = 'global' and exists (
+      select 1 from public.matches where id = (select max(id) from public.matches) and (score_a is not null or void)))
+    or (b.scope <> 'global' and not exists (
+      select 1 from public.matches m
+      where to_char(m.starts_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD') = b.scope and m.score_a is null and not m.void)))
+  order by b.scope = 'global' desc, b.scope desc
+$$;
+
 -- UU PDP: hapus akun & semua tebakan.
 create function public.delete_my_account() returns void
 language sql security definer set search_path = public, auth as $$
@@ -246,7 +273,7 @@ $$;
 
 -- Supabase memberi anon/authenticated EXECUTE ke semua fungsi baru secara default → cabut semua, buka yang perlu saja.
 revoke execute on all functions in schema public from public, anon, authenticated;
-grant execute on function public.leaderboard(date), public.pick_stats() to anon, authenticated;
+grant execute on function public.leaderboard(date), public.pick_stats(), public.champions() to anon, authenticated;
 grant execute on function public.save_prediction(smallint, smallint, smallint, boolean), public.delete_my_account() to authenticated;
 
 -- Refresh snapshot tiap menit. Supabase: pg_cron tersedia di semua plan.

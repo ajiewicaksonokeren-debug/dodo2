@@ -28,6 +28,9 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 | `table:board_dirty` | table | supabase/schema.sql | Hari yang skornya dikoreksi → ikut di-refresh |
 | `table:stats` | table | supabase/schema.sql | Snapshot distribusi pilihan (match terkunci saja) |
 | `job:pickem-refresh` | pg_cron | supabase/schema.sql `refresh_all()` | Tiap menit: board global + hari ini + hari dirty, stats |
+| `table:announcements` | table | supabase/schema.sql | Pengumuman admin (≤280 huruf, link https opsional); publik hanya lihat `active` |
+| `fn:champions` | rpc | supabase/schema.sql | Juara harian (rank 1 scope hari itu, setelah semua match hari itu selesai/void) + juara global (setelah match id terbesar selesai) |
+| `ui:news` | ui | index.html `renderNews()` | Kartu "Pengumuman" di bawah tab, tampil di kedua tab: 3 pengumuman terbaru + maks 3 juara; kosong = tidak tampil |
 | `table:pick_resets` | table | supabase/schema.sql | Log tebakan yang dihapus karena tim berubah → status card |
 | `fn:save_prediction` | rpc | supabase/schema.sql | Satu-satunya jalur tulis: login, tim pasti, belum mulai (jam server), skor valid BO, Joker 1x |
 | `fn:on_match_change` | trigger | supabase/schema.sql | Hitung ulang poin, isi tim babak berikut, hapus+log tebakan kalau tim berubah, kembalikan Joker saat void |
@@ -44,6 +47,7 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 - `admin` → writes `table:matches` → triggers `fn:on_match_change` → writes `table:predictions.points`, `table:matches.team_*` (rekursif ke babak berikut), `table:pick_resets`, `table:board_dirty`.
 - `fn:save_prediction` → writes `table:predictions`, `table:players`.
 - `job:pickem-refresh` → reads `table:predictions`, `table:matches`, `table:players`, `table:board_dirty` → writes `table:board`, `table:stats`.
+- `fn:champions` → reads `table:board`, `table:matches`; `page:pickem` → reads `table:announcements`.
 - `fn:leaderboard` → reads `table:board`; `fn:pick_stats` → reads `table:stats`.
 - Bracket: M1→W:M3.b · M2→W:M4.b · M3→W:M6.a L:M5.a · M4→W:M6.b L:M5.b · M6→W:M8.a L:M7.a · M5→W:M7.b · M7→W:M8.b.
 
@@ -69,12 +73,16 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 
 ## Uji kecurangan (2026-11-01, lokal, stub meniru default privileges Supabase)
 
-27/27 AMAN: insert/update/delete langsung, poin palsu, tebak atas nama orang lain, intip tebakan orang, tebak/ganti setelah kunci, skor mustahil/seri/negatif/NULL, match TBD/tidak ada, Joker kedua, race 2 Joker bersamaan ×20 (unique index), ubah/buat match, ubah snapshot klasemen, baca players/auth.users, spam refresh_all/refresh_board, hapus akun orang lain, akun email, anon menebak/membaca, distribusi bocor setelah jadwal diundur (diperbaiki: pick_stats cek kunci saat dibaca).
+29/29 AMAN (termasuk tulis pengumuman palsu & intip draft): insert/update/delete langsung, poin palsu, tebak atas nama orang lain, intip tebakan orang, tebak/ganti setelah kunci, skor mustahil/seri/negatif/NULL, match TBD/tidak ada, Joker kedua, race 2 Joker bersamaan ×20 (unique index), ubah/buat match, ubah snapshot klasemen, baca players/auth.users, spam refresh_all/refresh_board, hapus akun orang lain, akun email, anon menebak/membaca, distribusi bocor setelah jadwal diundur (diperbaiki: pick_stats cek kunci saat dibaca).
 Belum dicegah (bukan pelanggaran aturan, tapi penyalahgunaan): multi-akun Google (PRD: dicek saat verifikasi hadiah); spam save_prediction dari akun sah (tidak ada rate limit per user — ~1 ms/panggilan, hanya mengubah baris miliknya sendiri).
 
 ## Keputusan iklan
 
 - 6 slot (3 per tab), bukan 2 seperti PRD — permintaan owner 2026-11-01. Batas yang dipegang: tidak pernah di dalam card / bersebelahan tombol skor, hanya di jeda antar hari/blok, tidak refresh. Estimasi PRD: 2 slot ≈ $22 di 5rb pemain (eCPM $1); 6 slot kira-kira $40–50 karena slot bawah jarang terlihat. Pantau metrik 'kembali lagi' — kalau turun, kurangi slot (hapus entri di `TEBAK_ADS` / sembunyikan `board-50`).
+
+## Arsitektur: kenapa satu file HTML
+
+`index.html` = kerangka statis; SEMUA data (jadwal, skor, klasemen, distribusi, pengumuman, juara) diambil live dari Supabase tiap halaman dibuka. Admin ubah data → langsung tampil, tanpa deploy. Statis dipilih karena: hosting CDN gratis, kuat lonjakan kickoff, tidak ada server yang bisa down. Re-upload hanya kalau `CFG` atau tampilan berubah.
 
 ## Celah yang diketahui (belum diperbaiki, sengaja)
 
@@ -98,6 +106,8 @@ Belum dicegah (bukan pelanggaran aturan, tapi penyalahgunaan): multi-akun Google
 
 - Hasil: Table Editor → `matches` → isi `score_a`, `score_b` (skor pemenang harus = (BO+1)/2, kalau tidak DB menolak).
 - Jam resmi keluar: update `starts_at`, set `time_tbc=false`. Sekarang M3–M8 dipasang 12.00 WIB sebagai batas aman (lebih baik tutup kecepetan daripada orang bisa nebak setelah match mulai).
+- Pengumuman: Table Editor → `announcements` → Insert row (`body`, opsional `link` https). Tarik: set `active=false`. Tampil di tool saat halaman dibuka / balik ke tab.
+- Juara harian & global tampil sendiri (≤1 menit setelah skor terakhir hari itu diisi). Konten/sosial tinggal ambil dari kartu Pengumuman.
 - Walkover/batal: `void=true` (isi skor juga kalau ada pemenang supaya bracket jalan).
 - Koreksi skor: edit skor lagi; kalau tim babak berikut berubah, tebakan match itu terhapus dan pemain lihat pesan di card.
 

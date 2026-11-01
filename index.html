@@ -111,6 +111,14 @@ button:disabled{cursor:not-allowed}
 
 .banner{background:var(--warn-bg);border:1px solid #F5D9A8;color:#7A3E00;border-radius:12px;padding:12px 14px;font-size:13px;margin-bottom:12px}
 .banner a{color:inherit;font-weight:800}
+.news{padding:14px 16px}
+.news h2{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.news .champ{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border);font-size:14px}
+.news .champ:first-of-type{border-top:0}
+.news .champ b{font-weight:800}
+.news .champ.global{background:radial-gradient(90% 70% at 100% 0%,#1E3470 0%,#0A1226 60%);color:#fff;border-radius:12px;padding:12px;border:0;margin-bottom:6px}
+.news .msg{font-size:14px;color:var(--text2);padding:6px 0}
+.news .msg a{color:var(--blue-600);font-weight:700}
 
 footer{margin-top:28px;font-size:12px;color:var(--muted);text-align:center;line-height:1.7}
 footer button,footer a{color:var(--text2);font-weight:700;text-decoration:underline}
@@ -141,6 +149,7 @@ dialog .btn+.btn{margin-top:8px}
   </nav>
 
   <div id="inapp" class="banner" hidden></div>
+  <section id="news" aria-label="Pengumuman"></section>
 
   <main id="tebak">
     <div id="tebak-msg"></div>
@@ -258,7 +267,9 @@ const scoresFor = bo => { const w = (bo + 1) / 2; return Array.from({ length: w 
 /* ---------- Data ---------- */
 async function load() {
   S.loadedAt = Date.now();
-  const [m, st] = await Promise.all([sb.from('matches').select('*').order('id'), sb.rpc('pick_stats')]);
+  const [m, st, an, ch] = await Promise.all([sb.from('matches').select('*').order('id'), sb.rpc('pick_stats'),
+    sb.from('announcements').select('body,link').order('created_at', { ascending: false }).limit(3), sb.rpc('champions')]);
+  S.news = an.data || []; S.champs = ch.data || [];
   if (m.error) { S.loadErr = true; return render(); }
   S.loadErr = false;
   S.matches = m.data;
@@ -434,7 +445,15 @@ function renderFoot() {
     + (CFG.TERMS_URL ? `<br><a href="${esc(CFG.TERMS_URL)}" target="_blank" rel="noopener">Syarat & Ketentuan</a>` : '');
 }
 
-function render() { renderTebak(); renderFoot(); }
+function renderNews() {
+  const champ = c => c.scope === 'global'
+    ? `<div class="champ global">🏆 <span>Juara Pick'em MPL ID S18: <b>${esc(c.name)}</b> · ${c.points} poin</span></div>`
+    : `<div class="champ">🥇 <span>Juara harian ${fmtDay(new Date(c.scope + 'T12:00:00+07:00'))}: <b>${esc(c.name)}</b> · ${c.points} poin</span></div>`;
+  const msg = n => `<p class="msg">${esc(n.body)}${n.link ? ` <a href="${esc(n.link)}" target="_blank" rel="noopener">Selengkapnya</a>` : ''}</p>`;
+  const items = (S.news || []).map(msg).join('') + (S.champs || []).slice(0, 3).map(champ).join('');
+  $('#news').innerHTML = items ? `<div class="card news"><h2>Pengumuman</h2>${items}</div>` : '';
+}
+function render() { renderNews(); renderTebak(); renderFoot(); }
 
 function share() {
   const gf = S.matches.find(m => m.id === 8), p = gf && S.picks[8];

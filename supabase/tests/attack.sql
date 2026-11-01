@@ -51,6 +51,8 @@ select pg_temp.t('22 Baca auth.users (email)', $$select * from auth.users$$, 0);
 select set_config('request.jwt.claim.sub','eeeeeeee-0000-0000-0000-000000000003',false);
 select pg_temp.t('24 Akun email (bukan Google) menebak', $$select save_prediction(1::smallint,3::smallint,0::smallint)$$);
 select set_config('request.jwt.claim.sub','aaaaaaaa-0000-0000-0000-000000000001',false);
+select pg_temp.t('28 Tulis pengumuman palsu', $$insert into announcements (body) values ('Hadiah 1 juta, transfer dulu ke ...')$$);
+select pg_temp.t('29 Intip pengumuman nonaktif (draft admin)', $$select * from announcements where not active$$, 0);
 reset role; set role anon; select set_config('request.jwt.claim.sub','',false);
 select pg_temp.t('25 Tanpa login: menebak', $$select save_prediction(1::smallint,3::smallint,0::smallint)$$);
 select pg_temp.t('26 Tanpa login: baca semua tebakan', $$select * from predictions$$, 0);
