@@ -62,6 +62,15 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 3. Ganti skor = klik skor lain; Joker toggle di card yang sudah ditebak.
 4. Admin isi `score_a/score_b` → poin + babak berikut otomatis.
 5. Klasemen → tantang via WhatsApp (pesan memuat tebakan Grand Final).
+6. Embed di artikel (iframe): Google menolak login di iframe → klik "Masuk dengan Google" membuka halaman penuh `?pick=<tebakan>` → tebakan dipindah ke localStorage, URL dibersihkan, dialog login langsung terbuka.
+   Snippet artikel WP (blok Custom HTML): `<iframe src="https://tebak.esportsku.com/" style="width:100%;height:1400px;border:0" loading="lazy" title="Pick'em MPL ID S18"></iframe>`
+- Dialog login ditutup tanpa login (Esc / Nanti saja) → tebakan tertunda dibuang (tidak tersimpan diam-diam saat login berikutnya).
+- Auto-save setelah login tidak mengecek jam di browser; server yang menolak kalau sudah terkunci, pesannya tampil di card. Joker lama di match itu dipertahankan.
+
+## Celah yang diketahui (belum diperbaiki, sengaja)
+
+- Jam device lebih cepat dari jam server → tombol mati lebih awal dari seharusnya (server tetap benar; tidak bisa curang, hanya kehilangan beberapa menit). Perbaikan butuh offset jam server.
+- Dalam iframe, Safari iOS kadang memblokir localStorage pihak ketiga → tebakan sebelum login hilang, pemain cukup klik ulang setelah login.
 
 ## Setup (sekali)
 

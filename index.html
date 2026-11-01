@@ -211,6 +211,11 @@ function showInApp() {
 }
 if (IN_APP) showInApp();
 
+// Di-embed di artikel (iframe): Google menolak login di dalam iframe → pindah ke halaman penuh bawa tebakannya.
+const FRAMED = window.top !== window.self;
+const handoff = new URLSearchParams(location.search).get('pick');
+if (handoff) { localStorage.setItem('pk_pending', handoff); history.replaceState(null, '', location.pathname); }
+
 const nameOf = u => {
   const w = (u?.user_metadata?.full_name || u?.user_metadata?.name || '').trim().split(/\s+/).filter(Boolean);
   return !w.length ? 'Pemain' : w.length === 1 ? w[0] : `${w[0]} ${w[w.length - 1][0].toUpperCase()}.`;
@@ -269,6 +274,10 @@ function pick(id, a, b) {
 
 async function login() {
   if (IN_APP) { $('#login').close(); showInApp(); $('#inapp').scrollIntoView({ behavior: 'smooth' }); return; }
+  if (FRAMED) {
+    const p = localStorage.getItem('pk_pending');
+    return window.open(location.origin + location.pathname + (p ? `?pick=${encodeURIComponent(p)}` : ''), '_top');
+  }
   localStorage.setItem('pk_login', '1');
   const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } });
   if (error) toast('Login gagal. Coba lagi.');
@@ -362,9 +371,9 @@ async function renderBoard() {
     ? `<div class="card me"><div class="sub">Peringkatmu</div><div class="big">Belum masuk</div>${dayLabel}<button class="btn primary" data-login>Masuk untuk ikut klasemen</button></div>`
     : me
       ? `<div class="card me"><div class="sub">Peringkatmu ${day ? 'hari ini' : ''}</div><div class="big">#${me.rank.toLocaleString('id-ID')} · ${me.points} poin</div>
-         <div class="sub">${me.exact} skor tepat · ${me.picks} tebakan</div>${dayLabel}</div>`
+         <div class="sub">${me.exact} skor tepat · ${me.picks} tebakan</div>${dayLabel}<button class="btn wa" data-share>Tantang teman via WhatsApp</button></div>`
       : Object.keys(S.picks).length
-        ? `<div class="card me"><div class="sub">Peringkatmu</div><div class="big">Sedang dihitung</div><div class="sub">Klasemen diperbarui tiap menit. Cek lagi sebentar.</div>${dayLabel}</div>`
+        ? `<div class="card me"><div class="sub">Peringkatmu</div><div class="big">Sedang dihitung</div><div class="sub">Klasemen diperbarui tiap menit. Cek lagi sebentar.</div>${dayLabel}<button class="btn wa" data-share>Tantang teman via WhatsApp</button></div>`
         : `<div class="card me"><div class="sub">Peringkatmu</div><div class="big">Belum menebak</div>${dayLabel}<button class="btn primary" data-goto="tebak">Isi tebakan</button></div>`;
   if (!top.length) return el.innerHTML = meCard + `<div class="card empty">Belum ada yang menebak. Jadilah yang pertama.</div>`;
   const row = r => `<div class="row ${r.rank <= 3 ? 'top' : ''} ${r.is_me ? 'mine' : ''}"><span class="rk">#${r.rank}</span>
@@ -426,7 +435,8 @@ document.addEventListener('click', async e => {
   }
 });
 $('#google').onclick = login;
-$('#later').onclick = () => { localStorage.removeItem('pk_pending'); $('#login').close(); };
+$('#later').onclick = () => $('#login').close();
+$('#login').addEventListener('close', () => { if (!localStorage.getItem('pk_login')) localStorage.removeItem('pk_pending'); });
 
 // Jangan await panggilan supabase di dalam callback auth (bisa deadlock) → setTimeout.
 sb.auth.onAuthStateChange((ev, session) => {
@@ -438,11 +448,13 @@ sb.auth.onAuthStateChange((ev, session) => {
 async function afterAuth() {
   if (S.user && localStorage.getItem('pk_login')) { localStorage.removeItem('pk_login'); track('pickem_login'); }
   await load();
-  const pending = S.user && JSON.parse(localStorage.getItem('pk_pending') || 'null');
-  if (pending) {
+  const pending = JSON.parse(localStorage.getItem('pk_pending') || 'null');
+  if (pending && !S.user && handoff) $('#login').showModal(); // datang dari embed: langsung tawarkan login
+  if (pending && S.user) {
     localStorage.removeItem('pk_pending');
-    const m = S.matches.find(x => x.id === pending.id);
-    if (m && !isLocked(m)) { await save(pending.id, pending.a, pending.b, false); document.getElementById(`m${pending.id}`)?.scrollIntoView({ block: 'center' }); }
+    // Server yang memutuskan (match sudah terkunci → pesan "Tebakan sudah ditutup" di card). Joker lama dipertahankan.
+    await save(pending.id, pending.a, pending.b, !!S.picks[pending.id]?.is_joker);
+    document.getElementById(`m${pending.id}`)?.scrollIntoView({ block: 'center' });
   }
   if (!$('#klasemen').hidden) renderBoard();
 }
