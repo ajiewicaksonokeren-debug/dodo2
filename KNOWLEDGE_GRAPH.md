@@ -67,7 +67,7 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 
 1. Supabase → New project (region Singapore) → SQL Editor → jalankan `supabase/schema.sql`.
 2. Auth → Providers → Google: isi Client ID/Secret dari Google Cloud (OAuth consent: External, publish). Redirect URI di Google = `https://<ref>.supabase.co/auth/v1/callback`.
-3. Auth → URL Configuration: Site URL + Redirect URLs = URL subdomain (mis. `https://pickem.esportsku.com/`).
+3. Auth → URL Configuration: Site URL + Redirect URLs = URL subdomain = `https://tebak.esportsku.com/`.
 4. Isi `CFG.SUPABASE_URL` dan `CFG.SUPABASE_KEY` (anon/publishable key) di `index.html`; isi `GA_ID` kalau subdomain belum ikut GA esportsku.
 5. Upload `index.html` ke host statis subdomain (Cloudflare Pages / Vercel / Netlify / folder di server WP).
 6. Tempel kode iklan ke `#slot-a` dan `#slot-b`.
