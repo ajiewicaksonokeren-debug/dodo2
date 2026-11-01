@@ -238,13 +238,14 @@ language sql security definer set search_path = public, auth as $$
   delete from auth.users where id = auth.uid();
 $$;
 
-revoke execute on all functions in schema public from public, anon;
+-- Supabase memberi anon/authenticated EXECUTE ke semua fungsi baru secara default → cabut semua, buka yang perlu saja.
+revoke execute on all functions in schema public from public, anon, authenticated;
 grant execute on function public.leaderboard(date), public.pick_stats() to anon, authenticated;
 grant execute on function public.save_prediction(smallint, smallint, smallint, boolean), public.delete_my_account() to authenticated;
 
 -- Refresh snapshot tiap menit. Supabase: pg_cron tersedia di semua plan.
 do $$ begin
-  create extension if not exists pg_cron;
+  create extension if not exists pg_cron with schema pg_catalog;
   perform cron.schedule('pickem-refresh', '* * * * *', 'select public.refresh_all()');
 exception when others then
   raise notice 'pg_cron belum aktif: Database > Extensions > pg_cron, lalu jalankan ulang blok ini';
