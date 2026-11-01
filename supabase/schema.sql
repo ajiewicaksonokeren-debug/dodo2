@@ -1,6 +1,10 @@
 -- Pick'em Playoff MPL ID S18 — jalankan sekali di Supabase SQL Editor.
 -- Semua aturan (kunci, validasi skor, poin, bracket) dijaga di sini. Browser tidak dipercaya.
 
+-- Bersihkan prototipe lama (tabel kosong). Aman dijalankan di project baru.
+drop table if exists public.predictions, public.matches cascade;
+drop function if exists public.check_prediction, public.settle_match, public.leaderboard cascade;
+
 create table public.matches (
   id         smallint primary key,
   round      text not null,
