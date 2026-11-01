@@ -17,8 +17,7 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 | `page:pickem` | page | index.html | Tab Tebak + Klasemen, login sheet, footer akun |
 | `ui:match-card` | ui | index.html `matchCard()` | 8 state card (belum login, TBD, tersimpan, terkunci+distribusi, selesai+poin, void, reset, error) |
 | `ui:board` | ui | index.html `renderBoard()` | Kartu rank saya + top 100, Global / Hari ini (tanggal WIB, di-clamp ke 4–8 Nov) |
-| `ui:slot-a` | ad | index.html `#slot-a` + `fillAd()` | AdSense unit `CFG.ADSENSE_SLOT_A` setelah M2; dimuat sekali saat pertama terlihat, tidak pernah di-refresh |
-| `ui:slot-b` | ad | index.html `#slot-b` + `fillAd()` | AdSense unit `CFG.ADSENSE_SLOT_B` setelah rank 10; dimuat saat Klasemen pertama kali tampil. Tidak terisi → slot hilang. Di iframe → AdSense tidak dimuat |
+| `ui:ads` | ad | index.html `buildDays()`, `[data-ad]`, `adIO`, `fillAd()` | 6 posisi AdSense statis (tidak di-render ulang = tidak refresh), lazy-load ±300px dari layar, 1× per posisi. Tebak: `tebak-1` (setelah 4 Nov), `tebak-3` (setelah 6 Nov), `tebak-end`. Klasemen: `board-10` (selalu kalau ada baris), `board-50` (>50 baris), `board-end` (>90 baris). Hari kosong / tidak terisi / iframe → tidak tampil |
 | `test:attack` | test | supabase/tests/attack.sql | 27 skenario curang dalam BEGIN…ROLLBACK; semua harus 'AMAN' |
 | `ui:in-app-banner` | ui | index.html `showInApp()` | Instagram/FB/TikTok/LINE/WA in-app → "Buka di Chrome" (intent Android) / "Buka di Safari" |
 | `cfg` | config | index.html `CFG` | SUPABASE_URL, SUPABASE_KEY (anon), GA_ID, SPONSOR, TERMS_URL, DAYS |
@@ -73,6 +72,10 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 27/27 AMAN: insert/update/delete langsung, poin palsu, tebak atas nama orang lain, intip tebakan orang, tebak/ganti setelah kunci, skor mustahil/seri/negatif/NULL, match TBD/tidak ada, Joker kedua, race 2 Joker bersamaan ×20 (unique index), ubah/buat match, ubah snapshot klasemen, baca players/auth.users, spam refresh_all/refresh_board, hapus akun orang lain, akun email, anon menebak/membaca, distribusi bocor setelah jadwal diundur (diperbaiki: pick_stats cek kunci saat dibaca).
 Belum dicegah (bukan pelanggaran aturan, tapi penyalahgunaan): multi-akun Google (PRD: dicek saat verifikasi hadiah); spam save_prediction dari akun sah (tidak ada rate limit per user — ~1 ms/panggilan, hanya mengubah baris miliknya sendiri).
 
+## Keputusan iklan
+
+- 6 slot (3 per tab), bukan 2 seperti PRD — permintaan owner 2026-11-01. Batas yang dipegang: tidak pernah di dalam card / bersebelahan tombol skor, hanya di jeda antar hari/blok, tidak refresh. Estimasi PRD: 2 slot ≈ $22 di 5rb pemain (eCPM $1); 6 slot kira-kira $40–50 karena slot bawah jarang terlihat. Pantau metrik 'kembali lagi' — kalau turun, kurangi slot (hapus entri di `TEBAK_ADS` / sembunyikan `board-50`).
+
 ## Celah yang diketahui (belum diperbaiki, sengaja)
 
 - Jam device lebih cepat dari jam server → tombol mati lebih awal dari seharusnya (server tetap benar; tidak bisa curang, hanya kehilangan beberapa menit). Perbaikan butuh offset jam server.
@@ -85,7 +88,7 @@ Belum dicegah (bukan pelanggaran aturan, tapi penyalahgunaan): multi-akun Google
 3. Auth → URL Configuration: Site URL + Redirect URLs = URL subdomain = `https://tebak.esportsku.com/`.
 4. `CFG.SUPABASE_URL` + `CFG.SUPABASE_KEY` sudah terisi project di atas; isi `GA_ID` kalau subdomain belum ikut GA esportsku.
 5. Upload `index.html` ke host statis subdomain (Cloudflare Pages / Vercel / Netlify / folder di server WP).
-6. AdSense: isi `CFG.ADSENSE_CLIENT` (ca-pub-…), `ADSENSE_SLOT_A`, `ADSENSE_SLOT_B` (2 unit Display responsif). Lalu:
+6. AdSense: isi `CFG.ADSENSE_CLIENT` (ca-pub-…) + `ADSENSE_SLOT` (1 unit Display responsif dipakai semua posisi; boleh ID khusus per posisi di `ADSENSE_SLOTS` untuk laporan per posisi). Posisi Tebak diatur di `CFG.TEBAK_ADS`. Lalu:
    - Pastikan `esportsku.com/ads.txt` memuat baris `google.com, pub-…, DIRECT, f08c47fec0942fa0` (subdomain ikut ads.txt domain utama).
    - Auto ads: matikan untuk `tebak.esportsku.com` (AdSense → Iklan → Menurut situs → Pengecualian halaman). Auto ads bisa menaruh iklan menempel di tombol skor = risiko klik tidak sengaja → akun dibanned.
    - Jangan pasang Monetag popunder/push di subdomain yang sama dengan AdSense (kebijakan AdSense soal pop-up).

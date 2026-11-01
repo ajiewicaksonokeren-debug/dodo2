@@ -44,7 +44,7 @@ button:disabled{cursor:not-allowed}
 
 .card{background:var(--card-bg);box-shadow:var(--card-sh);border-radius:var(--r);padding:16px;margin-bottom:12px}
 .day{font-size:13px;font-weight:700;color:var(--muted);margin:22px 4px 10px;text-transform:uppercase;letter-spacing:.06em}
-.day:first-child{margin-top:4px}
+#days > :first-child .day,#tebak-msg + #days > :first-child .day{margin-top:4px}
 
 .m-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted);font-weight:600}
 .m-head b{color:var(--ink)}
@@ -80,9 +80,10 @@ button:disabled{cursor:not-allowed}
 .bar i{background:var(--blue)}
 .dist small{display:flex;justify-content:space-between;margin-top:4px;font-size:12px;color:var(--muted);font-weight:600}
 
-.ad{margin:20px 0;padding:10px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);min-height:0}
-.ad::before{content:'Iklan';display:block;font-size:11px;font-weight:600;color:var(--muted);text-align:center;margin-bottom:6px}
-.ad:empty,.ad:has(ins[data-ad-status=unfilled]){display:none} /* slot kosong / AdSense tidak terisi = tidak memakan ruang */
+.ad{height:1px} /* 1px: cukup untuk dideteksi saat mendekati layar (lazy load), tak terlihat */
+.ad[data-filled]{height:auto;margin:20px 0;padding:10px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.ad[data-filled]::before{content:'Iklan';display:block;font-size:11px;font-weight:600;color:var(--muted);text-align:center;margin-bottom:6px}
+.noads .ad,section:empty + .ad,.ad:has(ins[data-ad-status=unfilled]){display:none} /* tanpa AdSense / hari kosong / tidak terisi = tidak memakan ruang */
 
 .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:48px;border-radius:12px;font-weight:700}
 .btn.primary{background:linear-gradient(160deg,#4D7DFF,#1D5BFF 55%,#0F47E0);color:#fff;box-shadow:0 14px 28px -12px rgba(29,91,255,.6)}
@@ -142,10 +143,8 @@ dialog .btn+.btn{margin-top:8px}
   <div id="inapp" class="banner" hidden></div>
 
   <main id="tebak">
-    <div id="list-a"></div>
-    <!-- SLOT A (setelah M2): diisi otomatis dari CFG.ADSENSE_SLOT_A. -->
-    <div class="ad" id="slot-a"></div>
-    <div id="list-b"></div>
+    <div id="tebak-msg"></div>
+    <div id="days"></div><!-- per hari + slot iklan antar hari, dibangun sekali oleh buildDays() -->
   </main>
   <main id="klasemen" hidden>
     <div class="seg">
@@ -153,9 +152,12 @@ dialog .btn+.btn{margin-top:8px}
       <button aria-pressed="false" data-board="day">Hari ini</button>
     </div>
     <div id="board"></div>
-    <!-- SLOT B (setelah rank 10): diisi otomatis dari CFG.ADSENSE_SLOT_B. -->
-    <div class="ad" id="slot-b" hidden></div>
+    <!-- Slot iklan statis (tidak ikut di-render ulang = tidak refresh). Tampil hanya kalau ada isi di sekitarnya. -->
+    <div class="ad" data-ad="board-10" hidden></div>
+    <div id="board-mid"></div>
+    <div class="ad" data-ad="board-50" hidden></div>
     <div id="board-rest"></div>
+    <div class="ad" data-ad="board-end" hidden></div>
   </main>
 
   <footer id="foot"></footer>
@@ -178,8 +180,11 @@ const CFG = {
   SPONSOR: '',      // 'Brand X' → "Pick'em MPL by Brand X" + disebut di pesan WA
   TERMS_URL: '',    // isi kalau ada hadiah (S&K wajib)
   ADSENSE_CLIENT: '', // 'ca-pub-1234567890123456' (AdSense → Akun → Informasi akun)
-  ADSENSE_SLOT_A: '', // ID unit iklan Display responsif #1 (AdSense → Iklan → Menurut unit iklan)
-  ADSENSE_SLOT_B: '', // ID unit iklan Display responsif #2
+  ADSENSE_SLOT: '',   // ID unit Display responsif (AdSense → Iklan → Menurut unit iklan). Dipakai semua posisi…
+  ADSENSE_SLOTS: {},  // …kecuali yang diisi khusus di sini, untuk laporan per posisi:
+                      // { 'tebak-1': '…', 'tebak-3': '…', 'tebak-end': '…', 'board-10': '…', 'board-50': '…', 'board-end': '…' }
+  // Posisi di tab Tebak: setelah hari ke-N (tanggal → nama posisi) + 1 di akhir daftar.
+  TEBAK_ADS: { '2026-11-04': 'tebak-1', '2026-11-06': 'tebak-3' },
   DAYS: ['2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08'],
 };
 
@@ -223,7 +228,14 @@ const handoff = new URLSearchParams(location.search).get('pick');
 const ADS = !!CFG.ADSENSE_CLIENT && !FRAMED;
 if (ADS) document.head.append(Object.assign(document.createElement('script'), {
   async: true, crossOrigin: 'anonymous', src: `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${CFG.ADSENSE_CLIENT}` }));
-function fillAd(el, slot) {
+document.documentElement.classList.toggle('noads', !ADS);
+// Lazy: iklan dimuat saat slot ±300px dari layar (lebih cepat, viewability lebih tinggi). Slot hidden tidak pernah terpicu.
+const adIO = ADS && 'IntersectionObserver' in window
+  ? new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { adIO.unobserve(e.target); fillAd(e.target); } }), { rootMargin: '300px 0px' })
+  : null;
+const watchAds = root => root.querySelectorAll('.ad:not([data-filled])').forEach(el => adIO?.observe(el));
+function fillAd(el) {
+  const slot = CFG.ADSENSE_SLOTS[el.dataset.ad] || CFG.ADSENSE_SLOT;
   if (!ADS || !slot || el.dataset.filled) return;
   el.dataset.filled = '1';
   el.innerHTML = `<ins class="adsbygoogle" style="display:block" data-ad-client="${esc(CFG.ADSENSE_CLIENT)}" data-ad-slot="${esc(slot)}" data-ad-format="auto" data-full-width-responsive="true"></ins>`;
@@ -359,17 +371,27 @@ function matchCard(m) {
 }
 
 // Slot iklan statis di HTML (tidak ikut di-render ulang = tidak refresh iklan).
+function buildDays() { // sekali: section per hari WIB + slot iklan antar hari (statis → tidak refresh)
+  $('#days').innerHTML = CFG.DAYS.map(d => `<section id="g-${d}"></section>` + (CFG.TEBAK_ADS[d] ? `<div class="ad" data-ad="${CFG.TEBAK_ADS[d]}"></div>` : '')).join('')
+    + '<div id="share-slot"></div><section id="g-end"></section><div class="ad" data-ad="tebak-end"></div>';
+  watchAds($('#days'));
+}
+buildDays(); watchAds($('#klasemen'));
 function renderTebak() {
-  if (S.loadErr) { $('#list-b').innerHTML = ''; return $('#list-a').innerHTML = `<div class="card empty">Gagal memuat jadwal.<br><br><button class="btn ghost" data-retry>Coba lagi</button></div>`; }
-  if (!S.matches.length) return $('#list-a').innerHTML = '<div class="card empty">Memuat jadwal…</div>';
-  const html = { a: '', b: '' }; let day = '';
-  for (const m of S.matches) {
-    const d = fmtDay(new Date(m.starts_at)), k = m.id <= 2 ? 'a' : 'b';
-    if (d !== day) { html[k] += `<h2 class="day">${d}</h2>`; day = d; }
-    html[k] += matchCard(m);
+  const groups = Object.fromEntries(CFG.DAYS.map(d => [d, '']));
+  if (S.loadErr) $('#tebak-msg').innerHTML = `<div class="card empty">Gagal memuat jadwal.<br><br><button class="btn ghost" data-retry>Coba lagi</button></div>`;
+  else if (!S.matches.length) $('#tebak-msg').innerHTML = '<div class="card empty">Memuat jadwal…</div>';
+  else {
+    $('#tebak-msg').innerHTML = '';
+    for (const m of S.matches) {
+      let d = isoDay(new Date(m.starts_at));
+      if (!(d in groups)) d = d < CFG.DAYS[0] ? CFG.DAYS[0] : CFG.DAYS.at(-1);
+      groups[d] += (groups[d] ? '' : `<h2 class="day">${fmtDay(new Date(m.starts_at))}</h2>`) + matchCard(m);
+    }
   }
-  if (Object.keys(S.picks).length) html.b += `<button class="btn wa" data-share>Tantang teman via WhatsApp</button>`;
-  $('#list-a').innerHTML = html.a; $('#list-b').innerHTML = html.b;
+  for (const d of CFG.DAYS) $(`#g-${d}`).innerHTML = groups[d];
+  $('#share-slot').innerHTML = Object.keys(S.picks).length ? `<button class="btn wa" data-share>Tantang teman via WhatsApp</button>` : '';
+  $('#g-end').innerHTML = S.matches.length ? ' ' : ''; // ada isi → iklan akhir boleh tampil
 }
 
 /* ---------- Render: Klasemen ---------- */
@@ -377,7 +399,8 @@ const boardDay = () => { const t = isoDay(new Date()); return t < CFG.DAYS[0] ? 
 
 async function renderBoard() {
   const el = $('#board'), day = S.board === 'day' ? boardDay() : null;
-  el.innerHTML = '<div class="card empty">Memuat klasemen…</div>'; $('#slot-b').hidden = true; $('#board-rest').innerHTML = '';
+  el.innerHTML = '<div class="card empty">Memuat klasemen…</div>'; $('#board-mid').innerHTML = $('#board-rest').innerHTML = '';
+  document.querySelectorAll('#klasemen .ad').forEach(a => a.hidden = true);
   const { data, error } = await sb.rpc('leaderboard', day ? { p_day: day } : {});
   if (error) return el.innerHTML = `<div class="card empty">Gagal memuat klasemen.<br><br><button class="btn ghost" data-board-retry>Coba lagi</button></div>`;
   const me = data.find(r => r.is_me), top = data.filter(r => r.rank <= 100);
@@ -393,11 +416,13 @@ async function renderBoard() {
   if (!top.length) return el.innerHTML = meCard + `<div class="card empty">Belum ada yang menebak. Jadilah yang pertama.</div>`;
   const row = r => `<div class="row ${r.rank <= 3 ? 'top' : ''} ${r.is_me ? 'mine' : ''}"><span class="rk">#${r.rank}</span>
     <span class="nm">${esc(r.name)}${r.is_me ? ' (kamu)' : ''}<small>${r.exact} skor tepat</small></span><span class="pt">${r.points}</span></div>`;
-  const first = top.slice(0, 10).map(row).join(''), rest = top.slice(10).map(row).join('');
-  el.innerHTML = meCard + `<div class="card rows">${first}</div>`;
-  $('#slot-b').hidden = false; fillAd($('#slot-b'), CFG.ADSENSE_SLOT_B);
-  $('#board-rest').innerHTML = (rest ? `<div class="card rows">${rest}</div>` : '')
-    + (me && me.rank > 100 ? `<div class="card rows"><div class="gap">⋯</div>${row(me)}</div>` : '');
+  const block = rows => rows.length ? `<div class="card rows">${rows.map(row).join('')}</div>` : '';
+  el.innerHTML = meCard + block(top.slice(0, 10));
+  $('#board-mid').innerHTML = block(top.slice(10, 50));
+  $('#board-rest').innerHTML = block(top.slice(50)) + (me && me.rank > 100 ? `<div class="card rows"><div class="gap">⋯</div>${row(me)}</div>` : '');
+  // Iklan hanya di antara konten: setelah rank 10 selalu, setelah rank 50 & di akhir hanya kalau daftarnya panjang.
+  const ad = n => document.querySelector(`[data-ad="${n}"]`);
+  ad('board-10').hidden = false; ad('board-50').hidden = top.length <= 50; ad('board-end').hidden = top.length <= 90;
 }
 
 /* ---------- Render: footer ---------- */
@@ -409,7 +434,7 @@ function renderFoot() {
     + (CFG.TERMS_URL ? `<br><a href="${esc(CFG.TERMS_URL)}" target="_blank" rel="noopener">Syarat & Ketentuan</a>` : '');
 }
 
-function render() { renderTebak(); renderFoot(); if (S.matches.length) fillAd($('#slot-a'), CFG.ADSENSE_SLOT_A); }
+function render() { renderTebak(); renderFoot(); }
 
 function share() {
   const gf = S.matches.find(m => m.id === 8), p = gf && S.picks[8];
