@@ -1,4 +1,4 @@
-# VPS: tool pemain (tebak.esportsku.com) + CMS (cms.esportsku.com) di satu server.
+# VPS: CMS (cms.esportsku.com). Tool pemain di Vercel, database di Supabase.
 # Database tetap Supabase. Jalankan dari folder ini:  docker compose up -d
 # Directus 11.17.4 (BSL 1.1: gratis produksi bila total keuangan < US$5 jt/tahun). v12 tidak dipakai:
 # tier gratisnya mematikan login Google staf & hak akses per kolom.
@@ -16,7 +16,6 @@ services:
     ports: ["80:80", "443:443", "443:443/udp"]
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ../index.html:/srv/tebak/index.html:ro
       - caddy_data:/data      # sertifikat HTTPS (Let's Encrypt), jangan dihapus
       - caddy_config:/config
     depends_on: [directus]

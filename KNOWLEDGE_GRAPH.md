@@ -17,7 +17,8 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 | `table:admin_log` | table | supabase/schema.sql | Trigger `match_log`: siapa/kapan/sebelum→sesudah tiap perubahan match (termasuk perubahan otomatis bracket) |
 | `table:save_days` | table | supabase/schema.sql | Hari WIB pemain menyimpan tebakan → metrik "kembali ≥2 hari" |
 | `cms:directus` | cms | deploy/docker-compose.yml, deploy/.env.example | Directus 11.17.4 di `cms.esportsku.com`, konek ke Supabase sebagai role DB `directus` (session pooler) |
-| `deploy:caddy` | infra | deploy/Caddyfile | VPS: HTTPS otomatis; `tebak.esportsku.com` → index.html statis (tanpa X-Frame-Options, untuk embed), `cms.esportsku.com` → directus:8055. Port 8055 tidak dibuka ke publik |
+| `deploy:vercel` | infra | vercel.json, .vercelignore | Tool pemain di Vercel (`tebak.esportsku.com`): hanya index.html yang tayang; header keamanan + cache 60 s; tanpa X-Frame-Options (embed artikel) |
+| `deploy:caddy` | infra | deploy/Caddyfile | VPS: CMS saja, `cms.esportsku.com` → directus:8055, HTTPS otomatis. Port 8055 tidak dibuka ke publik |
 | `cms:setup` | script | cms/setup.mjs | Idempoten: koleksi + label ID + urutan form, role/policy PIC Skor & Editor Konten (hak per kolom), dashboard Metrik |
 | `role:directus` | db-role | supabase/cms.sql | Grant terbatas: update 5 kolom matches, CRUD announcements, update 5 kolom settings, baca metrics/admin_log. Tidak bisa baca predictions/players/auth |
 | `table:settings` | table | supabase/schema.sql | Singleton (id=1): judul, subjudul, sponsor, info hadiah, S&K → dibaca tool |
@@ -92,7 +93,11 @@ Belum dicegah (bukan pelanggaran aturan, tapi penyalahgunaan): multi-akun Google
 
 - 6 slot (3 per tab), bukan 2 seperti PRD — permintaan owner 2026-11-01. Batas yang dipegang: tidak pernah di dalam card / bersebelahan tombol skor, hanya di jeda antar hari/blok, tidak refresh. Estimasi PRD: 2 slot ≈ $22 di 5rb pemain (eCPM $1); 6 slot kira-kira $40–50 karena slot bawah jarang terlihat. Pantau metrik 'kembali lagi' — kalau turun, kurangi slot (hapus entri di `TEBAK_ADS` / sembunyikan `board-50`).
 
-## Keputusan: hosting di VPS owner (2026-11-02)
+## Keputusan: Supabase + Vercel + VPS (2026-11-02, revisi)
+
+Owner: database Supabase, sisanya Vercel. Tool pemain → Vercel. CMS Directus TIDAK bisa di Vercel (butuh server Node yang terus hidup; Vercel = fungsi serverless berumur pendek) → CMS tetap di VPS owner (`deploy/`, Caddy hanya `cms.`). Vercel Hobby melarang penggunaan komersial → perlu Pro; alternatif gratis untuk komersial: Cloudflare Pages.
+
+## (Lama) Keputusan: hosting di VPS owner (2026-11-02)
 
 Tool (statis) + CMS di satu VPS lewat Caddy. Database TETAP Supabase (Auth Google, RLS, cron, backup sudah jalan; memindah Postgres ke VPS = urus backup, auth, update sendiri 2 hari sebelum playoff). Caddyfile belum divalidasi dengan binary caddy (unduhan diblokir di sesi pembuatan) → `docker compose up` pertama: cek `docker compose logs caddy`.
 
@@ -120,7 +125,7 @@ Owner bertanya kenapa tidak CMS/Next.js. Admin panel memang perlu (PIC skor tida
 2. Auth → Providers → Google: isi Client ID/Secret dari Google Cloud (OAuth consent: External, publish). Redirect URI di Google = `https://<ref>.supabase.co/auth/v1/callback`.
 3. Auth → URL Configuration: Site URL = `https://tebak.esportsku.com/`, Redirect URLs = `https://tebak.esportsku.com/**` (tool + `/admin/`).
 4. `CFG.SUPABASE_URL` + `CFG.SUPABASE_KEY` sudah terisi project di atas; isi `GA_ID` kalau subdomain belum ikut GA esportsku.
-5. Upload `index.html` ke host statis subdomain (Cloudflare Pages / Vercel / Netlify / folder di server WP).
+5. Vercel: Add New → Project → import repo → Framework Preset "Other", tanpa build command, output = root → Domains: `tebak.esportsku.com` (CNAME `tebak` → `cname.vercel-dns.com`). Push ke branch produksi = deploy otomatis. Paket Pro wajib: Hobby dilarang untuk situs komersial (ada AdSense).
 6. AdSense: isi `CFG.ADSENSE_CLIENT` (ca-pub-…) + `ADSENSE_SLOT` (1 unit Display responsif dipakai semua posisi; boleh ID khusus per posisi di `ADSENSE_SLOTS` untuk laporan per posisi). Posisi Tebak diatur di `CFG.TEBAK_ADS`. Lalu:
    - Pastikan `esportsku.com/ads.txt` memuat baris `google.com, pub-…, DIRECT, f08c47fec0942fa0` (subdomain ikut ads.txt domain utama).
    - Auto ads: matikan untuk `tebak.esportsku.com` (AdSense → Iklan → Menurut situs → Pengecualian halaman). Auto ads bisa menaruh iklan menempel di tombol skor = risiko klik tidak sengaja → akun dibanned.
@@ -130,10 +135,10 @@ Owner bertanya kenapa tidak CMS/Next.js. Admin panel memang perlu (PIC skor tida
 7. CMS (setelah schema.sql):
    a. Ganti password di `supabase/cms.sql` → jalankan bagian 1 di SQL Editor.
    b. VPS (Ubuntu 22/24, ≥1 vCPU / 1 GB RAM, region Singapura/Jakarta):
-      - DNS: A record `tebak` & `cms` → IP VPS (kalau pakai Cloudflare: DNS only / awan abu-abu dulu sampai sertifikat terbit, lalu boleh Proxied + SSL "Full (strict)").
+      - DNS: A record `cms` → IP VPS (kalau pakai Cloudflare: DNS only / awan abu-abu dulu sampai sertifikat terbit, lalu boleh Proxied + SSL "Full (strict)").
       - Firewall: buka 22 (SSH, kunci saja), 80, 443. Tutup selain itu (`ufw allow OpenSSH 80 443/tcp 443/udp`).
       - Install Docker → `git clone` repo → `cd deploy && cp .env.example .env` → isi → `docker compose up -d`.
-      - Update tool: `git pull` (index.html langsung tersaji, tanpa restart). Update CMS/Caddy: `docker compose pull && docker compose up -d`.
+      - Update CMS/Caddy: `docker compose pull && docker compose up -d`.
    c. `DIRECTUS_URL=https://cms.esportsku.com DIRECTUS_EMAIL=… DIRECTUS_PASSWORD=… node cms/setup.mjs`
    d. Jalankan bagian 2 `supabase/cms.sql` (kunci tabel directus_* dari API publik).
    e. Login Owner → isi formulir project owner (BSL) → Pengguna → buat akun staf, pilih role PIC Skor / Editor Konten.

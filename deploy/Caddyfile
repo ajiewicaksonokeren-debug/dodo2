@@ -1,17 +1,4 @@
-# HTTPS otomatis (Let's Encrypt). Syarat: DNS A record kedua subdomain → IP VPS, port 80 & 443 terbuka.
-
-tebak.esportsku.com {
-	root * /srv/tebak
-	encode zstd gzip
-	header {
-		Strict-Transport-Security "max-age=31536000"
-		X-Content-Type-Options "nosniff"
-		Referrer-Policy "strict-origin-when-cross-origin"
-		Cache-Control "public, max-age=60"
-		# Sengaja TANPA X-Frame-Options: tool di-embed di artikel esportsku.com
-	}
-	file_server
-}
+# CMS saja (tool pemain di Vercel). HTTPS otomatis (Let's Encrypt). Syarat: A record `cms` → IP VPS, port 80 & 443 terbuka.
 
 cms.esportsku.com {
 	encode zstd gzip
