@@ -2,11 +2,11 @@
 
 > Edit inkremental, jangan generate ulang. Sumber: PRD Pick'em Playoff MPL ID S18 (21 Okt 2026). Token visual: Clipper DS v2 (tanpa logo Clipper).
 
-Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub `auth` (lock, validasi BO, Joker, poin, auto-bracket, koreksi skor + reset, void, RLS, leaderboard, hapus akun). `index.html` dites di Chromium 390px dengan Supabase di-mock (logout, login, hasil, klasemen, XSS nama).
+Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub `auth` (lock, validasi BO, Joker, poin, auto-bracket, koreksi skor + reset, void, RLS, leaderboard, hapus akun). `public/index.html` dites di Chromium 390px dengan Supabase di-mock (logout, login, hasil, klasemen, XSS nama).
 
 ## Stack
 
-- Frontend: `index.html` satu file, vanilla JS, `@supabase/supabase-js@2.45.4` UMD dari jsDelivr, font Plus Jakarta Sans. Host statis di subdomain (atau tempel di blok Custom HTML WP — sama saja).
+- Frontend: `public/index.html` satu file, vanilla JS, `@supabase/supabase-js@2.45.4` UMD dari jsDelivr, font Plus Jakarta Sans. Host statis di subdomain (atau tempel di blok Custom HTML WP — sama saja).
 - Backend: Supabase (free tier): Auth Google + Postgres. Semua aturan di DB; browser hanya menampilkan.
 - Admin & konten: CMS Directus 11 (`cms/`). Hak per orang di Directus (Owner / PIC Skor / Editor Konten); batas keras di database lewat role `directus` (`supabase/cms.sql`). Dashboard Supabase hanya untuk owner.
 
@@ -17,20 +17,20 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 | `table:admin_log` | table | supabase/schema.sql | Trigger `match_log`: siapa/kapan/sebelum→sesudah tiap perubahan match (termasuk perubahan otomatis bracket) |
 | `table:save_days` | table | supabase/schema.sql | Hari WIB pemain menyimpan tebakan → metrik "kembali ≥2 hari" |
 | `cms:directus` | cms | deploy/docker-compose.yml, deploy/.env.example | Directus 11.17.4 di `cms.esportsku.com`, konek ke Supabase sebagai role DB `directus` (session pooler) |
-| `deploy:vercel` | infra | vercel.json, .vercelignore | Tool pemain di Vercel (`tebak.esportsku.com`): hanya index.html yang tayang; header keamanan + cache 60 s; tanpa X-Frame-Options (embed artikel) |
+| `deploy:pages` | infra | public/_headers | Tool pemain di Cloudflare Pages (`tebak.esportsku.com`): yang dipublikasi hanya folder `public/`; header keamanan + cache 60 s; tanpa X-Frame-Options (embed artikel) |
 | `deploy:caddy` | infra | deploy/Caddyfile | VPS: CMS saja, `cms.esportsku.com` → directus:8055, HTTPS otomatis. Port 8055 tidak dibuka ke publik |
 | `cms:setup` | script | cms/setup.mjs | Idempoten: koleksi + label ID + urutan form, role/policy PIC Skor & Editor Konten (hak per kolom), dashboard Metrik |
 | `role:directus` | db-role | supabase/cms.sql | Grant terbatas: update 5 kolom matches, CRUD announcements, update 5 kolom settings, baca metrics/admin_log. Tidak bisa baca predictions/players/auth |
 | `table:settings` | table | supabase/schema.sql | Singleton (id=1): judul, subjudul, sponsor, info hadiah, S&K → dibaca tool |
 | `table:metrics` | table | supabase/schema.sql | Singleton metrik tes PRD, diisi `refresh_all()` tiap menit (tabel, bukan view: Directus tidak membaca view) |
 | `table:metrics_per_match` | table | supabase/schema.sql | Jumlah tebakan per match, diisi `refresh_all()` |
-| `page:pickem` | page | index.html | Tab Tebak + Klasemen, login sheet, footer akun |
-| `ui:match-card` | ui | index.html `matchCard()` | 8 state card (belum login, TBD, tersimpan, terkunci+distribusi, selesai+poin, void, reset, error) |
-| `ui:board` | ui | index.html `renderBoard()` | Kartu rank saya + top 100, Global / Hari ini (tanggal WIB, di-clamp ke 4–8 Nov) |
-| `ui:ads` | ad | index.html `buildDays()`, `[data-ad]`, `adIO`, `fillAd()` | 6 posisi AdSense statis (tidak di-render ulang = tidak refresh), lazy-load ±300px dari layar, 1× per posisi. Tebak: `tebak-1` (setelah 4 Nov), `tebak-3` (setelah 6 Nov), `tebak-end`. Klasemen: `board-10` (selalu kalau ada baris), `board-50` (>50 baris), `board-end` (>90 baris). Hari kosong / tidak terisi / iframe → tidak tampil |
+| `page:pickem` | page | public/index.html | Tab Tebak + Klasemen, login sheet, footer akun |
+| `ui:match-card` | ui | public/index.html `matchCard()` | 8 state card (belum login, TBD, tersimpan, terkunci+distribusi, selesai+poin, void, reset, error) |
+| `ui:board` | ui | public/index.html `renderBoard()` | Kartu rank saya + top 100, Global / Hari ini (tanggal WIB, di-clamp ke 4–8 Nov) |
+| `ui:ads` | ad | public/index.html `buildDays()`, `[data-ad]`, `adIO`, `fillAd()` | 6 posisi AdSense statis (tidak di-render ulang = tidak refresh), lazy-load ±300px dari layar, 1× per posisi. Tebak: `tebak-1` (setelah 4 Nov), `tebak-3` (setelah 6 Nov), `tebak-end`. Klasemen: `board-10` (selalu kalau ada baris), `board-50` (>50 baris), `board-end` (>90 baris). Hari kosong / tidak terisi / iframe → tidak tampil |
 | `test:attack` | test | supabase/tests/attack.sql | 27 skenario curang dalam BEGIN…ROLLBACK; semua harus 'AMAN' |
-| `ui:in-app-banner` | ui | index.html `showInApp()` | Instagram/FB/TikTok/LINE/WA in-app → "Buka di Chrome" (intent Android) / "Buka di Safari" |
-| `cfg` | config | index.html `CFG` | SUPABASE_URL, SUPABASE_KEY (anon), GA_ID, SPONSOR, TERMS_URL, DAYS |
+| `ui:in-app-banner` | ui | public/index.html `showInApp()` | Instagram/FB/TikTok/LINE/WA in-app → "Buka di Chrome" (intent Android) / "Buka di Safari" |
+| `cfg` | config | public/index.html `CFG` | SUPABASE_URL, SUPABASE_KEY (anon), GA_ID, ADSENSE_CLIENT/SLOT/SLOTS, TEBAK_ADS, DAYS. Teks/sponsor/hadiah/S&K → CMS (`table:settings`) |
 | `table:matches` | table | supabase/schema.sql | Jadwal, BO, `starts_at` (= kunci), `time_tbc`, tim, `src_a/b` (W1/L3), skor, `void` |
 | `table:predictions` | table | supabase/schema.sql | 1 tebakan per user per match, `is_joker`, `points` (hanya trigger yang isi) |
 | `table:players` | table | supabase/schema.sql | Nama publik (depan + inisial), diisi sekali saat tebakan pertama |
@@ -40,7 +40,7 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 | `job:pickem-refresh` | pg_cron | supabase/schema.sql `refresh_all()` | Tiap menit: board global + hari ini + hari dirty, stats |
 | `table:announcements` | table | supabase/schema.sql | Pengumuman admin (≤280 huruf, link https opsional); publik hanya lihat `active` |
 | `fn:champions` | rpc | supabase/schema.sql | Juara harian (rank 1 scope hari itu, setelah semua match hari itu selesai/void) + juara global (setelah match id terbesar selesai) |
-| `ui:news` | ui | index.html `renderNews()` | Kartu "Pengumuman" di bawah tab, tampil di kedua tab: 3 pengumuman terbaru + maks 3 juara; kosong = tidak tampil |
+| `ui:news` | ui | public/index.html `renderNews()` | Kartu "Pengumuman" di bawah tab, tampil di kedua tab: 3 pengumuman terbaru + maks 3 juara; kosong = tidak tampil |
 | `table:pick_resets` | table | supabase/schema.sql | Log tebakan yang dihapus karena tim berubah → status card |
 | `fn:save_prediction` | rpc | supabase/schema.sql | Satu-satunya jalur tulis: login, tim pasti, belum mulai (jam server), skor valid BO, Joker 1x |
 | `fn:on_match_change` | trigger | supabase/schema.sql | Hitung ulang poin, isi tim babak berikut, hapus+log tebakan kalau tim berubah, kembalikan Joker saat void |
@@ -49,7 +49,7 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 | `fn:pick_stats` | rpc | supabase/schema.sql | Baca `stats` |
 | `fn:refresh_board` | sql | supabase/schema.sql | Hitung ulang 1 scope; tiebreak poin → skor tepat → `max(updated_at)` lebih awal |
 | `fn:delete_my_account` | rpc | supabase/schema.sql | UU PDP: hapus auth user → cascade tebakan |
-| `ext:ga4` | tracking | index.html `track()` | pickem_view/login/save/board/share/joker via `gtag` |
+| `ext:ga4` | tracking | public/index.html `track()` | pickem_view/login/save/board/share/joker via `gtag` |
 
 ## Edges
 
@@ -93,7 +93,11 @@ Belum dicegah (bukan pelanggaran aturan, tapi penyalahgunaan): multi-akun Google
 
 - 6 slot (3 per tab), bukan 2 seperti PRD — permintaan owner 2026-11-01. Batas yang dipegang: tidak pernah di dalam card / bersebelahan tombol skor, hanya di jeda antar hari/blok, tidak refresh. Estimasi PRD: 2 slot ≈ $22 di 5rb pemain (eCPM $1); 6 slot kira-kira $40–50 karena slot bawah jarang terlihat. Pantau metrik 'kembali lagi' — kalau turun, kurangi slot (hapus entri di `TEBAK_ADS` / sembunyikan `board-50`).
 
-## Keputusan: Supabase + Vercel + VPS (2026-11-02, revisi)
+## Keputusan: Supabase + Cloudflare Pages + VPS (2026-11-02, final)
+
+Tool pemain → Cloudflare Pages (gratis komersial, bandwidth statis tanpa batas), output dir `public/` supaya SQL/skrip CMS tidak ikut tayang (Pages tidak punya file ignore). CMS tetap VPS (Directus butuh server Node yang terus hidup; tidak jalan di Pages/Workers). `cms.esportsku.com` boleh di-Proxied Cloudflare (SSL Full strict) setelah sertifikat Caddy terbit.
+
+## (Lama) Keputusan: Supabase + Vercel + VPS (2026-11-02, revisi)
 
 Owner: database Supabase, sisanya Vercel. Tool pemain → Vercel. CMS Directus TIDAK bisa di Vercel (butuh server Node yang terus hidup; Vercel = fungsi serverless berumur pendek) → CMS tetap di VPS owner (`deploy/`, Caddy hanya `cms.`). Vercel Hobby melarang penggunaan komersial → perlu Pro; alternatif gratis untuk komersial: Cloudflare Pages.
 
@@ -112,7 +116,7 @@ Owner bertanya kenapa tidak CMS/Next.js. Admin panel memang perlu (PIC skor tida
 
 ## Arsitektur: kenapa satu file HTML
 
-`index.html` = kerangka statis; SEMUA data (jadwal, skor, klasemen, distribusi, pengumuman, juara) diambil live dari Supabase tiap halaman dibuka. Admin ubah data → langsung tampil, tanpa deploy. Statis dipilih karena: hosting CDN gratis, kuat lonjakan kickoff, tidak ada server yang bisa down. Re-upload hanya kalau `CFG` atau tampilan berubah.
+`public/index.html` = kerangka statis; SEMUA data (jadwal, skor, klasemen, distribusi, pengumuman, juara) diambil live dari Supabase tiap halaman dibuka. Admin ubah data → langsung tampil, tanpa deploy. Statis dipilih karena: hosting CDN gratis, kuat lonjakan kickoff, tidak ada server yang bisa down. Re-upload hanya kalau `CFG` atau tampilan berubah.
 
 ## Celah yang diketahui (belum diperbaiki, sengaja)
 
@@ -125,7 +129,7 @@ Owner bertanya kenapa tidak CMS/Next.js. Admin panel memang perlu (PIC skor tida
 2. Auth → Providers → Google: isi Client ID/Secret dari Google Cloud (OAuth consent: External, publish). Redirect URI di Google = `https://<ref>.supabase.co/auth/v1/callback`.
 3. Auth → URL Configuration: Site URL = `https://tebak.esportsku.com/`, Redirect URLs = `https://tebak.esportsku.com/**` (tool + `/admin/`).
 4. `CFG.SUPABASE_URL` + `CFG.SUPABASE_KEY` sudah terisi project di atas; isi `GA_ID` kalau subdomain belum ikut GA esportsku.
-5. Vercel: Add New → Project → import repo → Framework Preset "Other", tanpa build command, output = root → Domains: `tebak.esportsku.com` (CNAME `tebak` → `cname.vercel-dns.com`). Push ke branch produksi = deploy otomatis. Paket Pro wajib: Hobby dilarang untuk situs komersial (ada AdSense).
+5. Cloudflare Pages: Workers & Pages → Create → Pages → Connect to Git → repo ini → Framework preset "None", build command kosong, **Build output directory `public`** → Custom domains: `tebak.esportsku.com`. Push ke branch produksi = deploy otomatis. Gratis untuk komersial.
 6. AdSense: isi `CFG.ADSENSE_CLIENT` (ca-pub-…) + `ADSENSE_SLOT` (1 unit Display responsif dipakai semua posisi; boleh ID khusus per posisi di `ADSENSE_SLOTS` untuk laporan per posisi). Posisi Tebak diatur di `CFG.TEBAK_ADS`. Lalu:
    - Pastikan `esportsku.com/ads.txt` memuat baris `google.com, pub-…, DIRECT, f08c47fec0942fa0` (subdomain ikut ads.txt domain utama).
    - Auto ads: matikan untuk `tebak.esportsku.com` (AdSense → Iklan → Menurut situs → Pengecualian halaman). Auto ads bisa menaruh iklan menempel di tombol skor = risiko klik tidak sengaja → akun dibanned.
