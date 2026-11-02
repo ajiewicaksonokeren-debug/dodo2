@@ -1,9 +1,0 @@
-# CMS Pick'em: Directus 11.17.4 di atas database Supabase yang sama.
-# v11 (BSL 1.1): gratis untuk produksi kalau total keuangan < US$5 juta/tahun. v12 TIDAK dipakai:
-# tier gratisnya mematikan login Google staf & hak akses per kolom.
-services:
-  directus:
-    image: directus/directus:11.17.4
-    ports: ["8055:8055"]
-    env_file: .env
-    restart: unless-stopped

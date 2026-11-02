@@ -16,7 +16,8 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 |---|---|---|---|
 | `table:admin_log` | table | supabase/schema.sql | Trigger `match_log`: siapa/kapan/sebelum→sesudah tiap perubahan match (termasuk perubahan otomatis bracket) |
 | `table:save_days` | table | supabase/schema.sql | Hari WIB pemain menyimpan tebakan → metrik "kembali ≥2 hari" |
-| `cms:directus` | cms | cms/docker-compose.yml, cms/.env.example | Directus 11.17.4 di `cms.esportsku.com`, konek ke Supabase sebagai role DB `directus` (session pooler) |
+| `cms:directus` | cms | deploy/docker-compose.yml, deploy/.env.example | Directus 11.17.4 di `cms.esportsku.com`, konek ke Supabase sebagai role DB `directus` (session pooler) |
+| `deploy:caddy` | infra | deploy/Caddyfile | VPS: HTTPS otomatis; `tebak.esportsku.com` → index.html statis (tanpa X-Frame-Options, untuk embed), `cms.esportsku.com` → directus:8055. Port 8055 tidak dibuka ke publik |
 | `cms:setup` | script | cms/setup.mjs | Idempoten: koleksi + label ID + urutan form, role/policy PIC Skor & Editor Konten (hak per kolom), dashboard Metrik |
 | `role:directus` | db-role | supabase/cms.sql | Grant terbatas: update 5 kolom matches, CRUD announcements, update 5 kolom settings, baca metrics/admin_log. Tidak bisa baca predictions/players/auth |
 | `table:settings` | table | supabase/schema.sql | Singleton (id=1): judul, subjudul, sponsor, info hadiah, S&K → dibaca tool |
@@ -91,6 +92,10 @@ Belum dicegah (bukan pelanggaran aturan, tapi penyalahgunaan): multi-akun Google
 
 - 6 slot (3 per tab), bukan 2 seperti PRD — permintaan owner 2026-11-01. Batas yang dipegang: tidak pernah di dalam card / bersebelahan tombol skor, hanya di jeda antar hari/blok, tidak refresh. Estimasi PRD: 2 slot ≈ $22 di 5rb pemain (eCPM $1); 6 slot kira-kira $40–50 karena slot bawah jarang terlihat. Pantau metrik 'kembali lagi' — kalau turun, kurangi slot (hapus entri di `TEBAK_ADS` / sembunyikan `board-50`).
 
+## Keputusan: hosting di VPS owner (2026-11-02)
+
+Tool (statis) + CMS di satu VPS lewat Caddy. Database TETAP Supabase (Auth Google, RLS, cron, backup sudah jalan; memindah Postgres ke VPS = urus backup, auth, update sendiri 2 hari sebelum playoff). Caddyfile belum divalidasi dengan binary caddy (unduhan diblokir di sesi pembuatan) → `docker compose up` pertama: cek `docker compose logs caddy`.
+
 ## Keputusan: CMS Directus 11 (2026-11-02) — menggantikan halaman /admin statis
 
 Owner: ada editor konten & banyak admin → pakai CMS. Directus dipilih karena dipasang DI ATAS database yang ada (trigger poin/bracket/anti-curang tetap jalan, tanpa migrasi); Payload/Strapi mau memiliki skema sendiri = bangun ulang. Versi 11.17.4, bukan 12: Directus 12 tanpa lisensi (Core) mengabaikan hak akses per kolom, mematikan SSO user biasa, dan membatasi seat (diverifikasi di kode `@directus/api` 12.6.0: `custom_permission_rules_enabled` ditolak). v11 BSL 1.1: gratis produksi bila total keuangan < US$5 jt. Risiko: v11 tidak lagi dapat update; dampak dibatasi role DB `directus` (tidak bisa baca tebakan/nama/email, hanya 5 kolom matches).
@@ -124,7 +129,11 @@ Owner bertanya kenapa tidak CMS/Next.js. Admin panel memang perlu (PIC skor tida
 
 7. CMS (setelah schema.sql):
    a. Ganti password di `supabase/cms.sql` → jalankan bagian 1 di SQL Editor.
-   b. Deploy `cms/` (Railway/Render/VPS Docker, ~512 MB RAM) dengan `.env` dari `.env.example`, domain `cms.esportsku.com`.
+   b. VPS (Ubuntu 22/24, ≥1 vCPU / 1 GB RAM, region Singapura/Jakarta):
+      - DNS: A record `tebak` & `cms` → IP VPS (kalau pakai Cloudflare: DNS only / awan abu-abu dulu sampai sertifikat terbit, lalu boleh Proxied + SSL "Full (strict)").
+      - Firewall: buka 22 (SSH, kunci saja), 80, 443. Tutup selain itu (`ufw allow OpenSSH 80 443/tcp 443/udp`).
+      - Install Docker → `git clone` repo → `cd deploy && cp .env.example .env` → isi → `docker compose up -d`.
+      - Update tool: `git pull` (index.html langsung tersaji, tanpa restart). Update CMS/Caddy: `docker compose pull && docker compose up -d`.
    c. `DIRECTUS_URL=https://cms.esportsku.com DIRECTUS_EMAIL=… DIRECTUS_PASSWORD=… node cms/setup.mjs`
    d. Jalankan bagian 2 `supabase/cms.sql` (kunci tabel directus_* dari API publik).
    e. Login Owner → isi formulir project owner (BSL) → Pengguna → buat akun staf, pilih role PIC Skor / Editor Konten.
