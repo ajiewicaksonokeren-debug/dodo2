@@ -1,6 +1,0 @@
-# CMS saja (tool pemain di Vercel). HTTPS otomatis (Let's Encrypt). Syarat: A record `cms` → IP VPS, port 80 & 443 terbuka.
-
-cms.esportsku.com {
-	encode zstd gzip
-	reverse_proxy directus:8055
-}

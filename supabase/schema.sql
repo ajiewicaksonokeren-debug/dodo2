@@ -53,8 +53,12 @@ revoke all on public.save_days from anon, authenticated;
 
 -- Nama publik dihitung sekali (bukan tiap refresh klasemen).
 create table public.players (
-  user_id uuid primary key references auth.users on delete cascade,
-  name    text not null
+  user_id      uuid primary key references auth.users on delete cascade,
+  name         text not null,
+  disqualified boolean not null default false,  -- keluar dari klasemen & daftar juara (multi-akun, dsb.)
+  dq_reason    text,
+  dq_by        text,
+  dq_at        timestamptz
 );
 
 alter table public.players     enable row level security;
@@ -209,7 +213,7 @@ language sql security definer set search_path = public set work_mem = '32MB' as 
     from public.predictions p join public.matches m on m.id = p.match_id
     where p_scope = 'global' or to_char(m.starts_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD') = p_scope
     group by p.user_id
-  ) s join public.players pl on pl.user_id = s.user_id;
+  ) s join public.players pl on pl.user_id = s.user_id and not pl.disqualified;
 $$;
 
 create function public.refresh_all() returns void
@@ -219,18 +223,6 @@ begin
   perform public.refresh_board('global');
   perform public.refresh_board(to_char(now() at time zone 'Asia/Jakarta', 'YYYY-MM-DD'));
   for s in delete from public.board_dirty returning scope loop perform public.refresh_board(s); end loop;
-  update public.metrics set
-    pemain = (select count(*) from public.players),
-    tebakan = (select count(*) from public.predictions),
-    tebakan_per_pemain = coalesce(round((select count(*) from public.predictions)::numeric / nullif((select count(*) from public.players), 0), 1), 0),
-    kembali_2_hari = (select count(*) from (select user_id from public.save_days group by user_id having count(*) >= 2) x),
-    main_hari_ini = (select count(*) from public.save_days where day = (now() at time zone 'Asia/Jakarta')::date),
-    joker_dipakai = (select count(*) from public.predictions where is_joker),
-    diperbarui = now();
-  update public.metrics set persen_kembali = coalesce(round(100.0 * kembali_2_hari / nullif(pemain, 0)), 0);
-  insert into public.metrics_per_match (id, tebakan)
-  select m.id, count(p.*) from public.matches m left join public.predictions p on p.match_id = m.id group by m.id
-  on conflict (id) do update set tebakan = excluded.tebakan;
   -- Distribusi hanya untuk match yang sudah terkunci (F8): tidak memengaruhi tebakan orang lain.
   delete from public.stats;
   insert into public.stats
@@ -272,13 +264,34 @@ create policy announcements_read on public.announcements for select using (activ
 revoke all on public.announcements from anon, authenticated;
 grant select on public.announcements to anon, authenticated;
 
--- ================= CMS (Directus di cms.esportsku.com) =================
--- Hak akses CMS: supabase/cms.sql (role database `directus`). Role per orang (Owner / PIC Skor / Editor Konten) diatur di Directus.
+-- ================= ADMIN (halaman /admin, tanpa CMS) =================
+-- Daftar admin = email Google. Diisi lewat SQL Editor saja:  insert into public.admins values ('nama@gmail.com');
+create table public.admins (email text primary key check (email = lower(email)));
+alter table public.admins enable row level security;
+revoke all on public.admins from anon, authenticated;
 
--- Teks tool yang diatur editor konten (satu baris).
+create function public.is_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.admins a join auth.users u on lower(u.email) = a.email
+    where u.id = auth.uid() and u.raw_app_meta_data->'providers' ? 'google')
+$$;
+
+-- Admin hanya boleh ubah kolom ini; trigger match_change tetap menghitung poin & bracket.
+grant update (score_a, score_b, starts_at, time_tbc, void) on public.matches to authenticated;
+create policy matches_admin_update on public.matches for update to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+
+create policy announcements_admin_read on public.announcements for select to authenticated using (public.is_admin());
+create policy announcements_admin_insert on public.announcements for insert to authenticated with check (public.is_admin());
+create policy announcements_admin_update on public.announcements for update to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+grant insert (body, link, active), update (body, link, active) on public.announcements to authenticated;
+
+-- Teks tool yang diatur admin (satu baris): judul, sponsor, info hadiah, S&K.
 create table public.settings (
-  id            int primary key default 1 check (id = 1),   -- int, bukan boolean: Directus singleton butuh PK angka/teks
-  sponsor_name  text,           -- "Pick'em MPL by <sponsor>" + disebut di pesan WA
+  id            int primary key default 1 check (id = 1),
+  sponsor_name  text,           -- "· by <sponsor>" di header + pesan WA
   hero_title    text not null default 'Pick''em Playoff MPL ID S18',
   hero_subtitle text not null default 'Tebak skor seri 8 match playoff. Gratis, tanpa koin. Tebakan terkunci saat match mulai.',
   prize_info    text,           -- contoh: "Juara global: 1.000 diamond dari <sponsor>"
@@ -287,10 +300,13 @@ create table public.settings (
 insert into public.settings default values;
 alter table public.settings enable row level security;
 create policy settings_read on public.settings for select using (true);
+create policy settings_admin_update on public.settings for update to authenticated
+  using (public.is_admin()) with check (public.is_admin());
 revoke all on public.settings from anon, authenticated;
 grant select on public.settings to anon, authenticated;
+grant update (sponsor_name, hero_title, hero_subtitle, prize_info, terms) on public.settings to authenticated;
 
--- Jejak perubahan match (melengkapi riwayat revisi Directus; juga mencatat perubahan otomatis bracket).
+-- Jejak perubahan match: siapa, kapan, sebelum → sesudah (sengketa skor / hadiah). Termasuk perubahan otomatis bracket.
 create table public.admin_log (
   id       bigint generated always as identity primary key,
   at       timestamptz not null default now(),
@@ -300,38 +316,70 @@ create table public.admin_log (
   after    jsonb not null
 );
 alter table public.admin_log enable row level security;
+create policy admin_log_read on public.admin_log for select to authenticated using (public.is_admin());
 revoke all on public.admin_log from anon, authenticated;
+grant select on public.admin_log to authenticated;
 
 create function public.log_match_change() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
   insert into public.admin_log (actor, match_id, before, after)
-  values (coalesce((select email from auth.users where id = auth.uid()), session_user), new.id, to_jsonb(old), to_jsonb(new));
+  values (coalesce((select email from auth.users where id = auth.uid()), 'dashboard/SQL'), new.id, to_jsonb(old), to_jsonb(new));
   return new;
 end $$;
 create trigger match_log after update on public.matches
 for each row when (old.* is distinct from new.*) execute function public.log_match_change();
 
--- Metrik tes PRD untuk dashboard CMS. Tabel (bukan view: Directus tidak membaca view), diisi refresh_all() tiap menit.
-create table public.metrics (
-  id int primary key default 1 check (id = 1),
-  pemain int not null default 0,
-  tebakan int not null default 0,
-  tebakan_per_pemain numeric not null default 0,
-  kembali_2_hari int not null default 0,
-  persen_kembali int not null default 0,
-  main_hari_ini int not null default 0,
-  joker_dipakai int not null default 0,
-  diperbarui timestamptz
-);
-insert into public.metrics default values;
-create table public.metrics_per_match (
-  id smallint primary key references public.matches,
-  tebakan int not null default 0
-);
-alter table public.metrics enable row level security;
-alter table public.metrics_per_match enable row level security;
-revoke all on public.metrics, public.metrics_per_match from anon, authenticated;
+-- Metrik tes PRD untuk keputusan lanjut/stop.
+create function public.admin_metrics() returns json
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Bukan admin' using errcode = '42501'; end if;
+  return json_build_object(
+    'players',     (select count(*) from public.players),
+    'predictions', (select count(*) from public.predictions),
+    'returning',   (select count(*) from (select user_id from public.save_days group by user_id having count(*) >= 2) x),
+    'today',       (select count(*) from public.save_days where day = (now() at time zone 'Asia/Jakarta')::date),
+    'jokers',      (select count(*) from public.predictions where is_joker),
+    'disqualified',(select count(*) from public.players where disqualified),
+    'per_match',   (select coalesce(json_object_agg(match_id, n), '{}') from (select match_id, count(*) n from public.predictions group by match_id) x)
+  );
+end $$;
+
+-- Verifikasi pemenang: top pemain + email (untuk dihubungi) + petunjuk multi-akun. Hanya admin.
+-- same_ip = jumlah AKUN LAIN yang pernah login dari IP yang sama. Petunjuk, bukan bukti (operator seluler berbagi IP).
+create function public.admin_players(p_limit int default 50)
+returns table (user_id uuid, rank int, name text, email text, joined timestamptz, last_login timestamptz,
+               points int, exact int, picks int, same_ip int, disqualified boolean, dq_reason text)
+language plpgsql stable security definer set search_path = public, auth as $$
+begin
+  if not public.is_admin() then raise exception 'Bukan admin' using errcode = '42501'; end if;
+  return query
+  select pl.user_id, b.rank, pl.name, u.email::text, u.created_at, u.last_sign_in_at,
+         coalesce(b.points, 0), coalesce(b.exact, 0), coalesce(b.picks, 0),
+         (select count(distinct s2.user_id)::int from auth.sessions s1 join auth.sessions s2
+            on s2.ip = s1.ip and s2.user_id <> s1.user_id where s1.user_id = pl.user_id and s1.ip is not null),
+         pl.disqualified, pl.dq_reason
+  from public.players pl
+  join auth.users u on u.id = pl.user_id
+  left join public.board b on b.scope = 'global' and b.user_id = pl.user_id
+  order by pl.disqualified desc, b.rank nulls last
+  limit least(p_limit, 50000);
+end $$;
+
+create function public.admin_set_disqualified(p_user uuid, p_dq boolean, p_reason text default null) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Bukan admin' using errcode = '42501'; end if;
+  if p_dq and coalesce(btrim(p_reason), '') = '' then raise exception 'Alasan diskualifikasi wajib diisi'; end if;
+  update public.players set disqualified = p_dq, dq_reason = case when p_dq then p_reason end,
+         dq_by = (select email from auth.users where id = auth.uid()), dq_at = now()
+  where user_id = p_user;
+  if not found then raise exception 'Pemain tidak ditemukan'; end if;
+  insert into public.board_dirty select distinct to_char(m.starts_at at time zone 'Asia/Jakarta', 'YYYY-MM-DD')
+    from public.predictions p join public.matches m on m.id = p.match_id where p.user_id = p_user
+  on conflict do nothing;  -- klasemen harian ikut dihitung ulang (≤ 1 menit)
+end $$;
 
 -- Juara otomatis: harian = rank 1 hari itu setelah semua match hari itu selesai; global = rank 1 setelah match terakhir selesai.
 create function public.champions()
@@ -357,7 +405,8 @@ $$;
 -- Supabase memberi anon/authenticated EXECUTE ke semua fungsi baru secara default → cabut semua, buka yang perlu saja.
 revoke execute on all functions in schema public from public, anon, authenticated;
 grant execute on function public.leaderboard(date), public.pick_stats(), public.champions() to anon, authenticated;
-grant execute on function public.save_prediction(smallint, smallint, smallint, boolean), public.delete_my_account() to authenticated;
+grant execute on function public.save_prediction(smallint, smallint, smallint, boolean), public.delete_my_account(),
+  public.is_admin(), public.admin_metrics(), public.admin_players(int), public.admin_set_disqualified(uuid, boolean, text) to authenticated;
 
 -- Refresh snapshot tiap menit. Supabase: pg_cron tersedia di semua plan.
 do $$ begin
