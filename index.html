@@ -138,8 +138,8 @@ dialog .btn+.btn{margin-top:8px}
 <div class="wrap">
   <header class="hero">
     <div class="kicker">esportsku · Playoff 4–8 Nov 2026<span id="sponsor"></span></div>
-    <h1>Pick'em Playoff<br>MPL ID S18</h1>
-    <p>Tebak skor seri 8 match playoff. Gratis, tanpa koin. Tebakan terkunci saat match mulai.</p>
+    <h1 id="hero-title">Pick'em Playoff MPL ID S18</h1>
+    <p id="hero-sub">Tebak skor seri 8 match playoff. Gratis, tanpa koin. Tebakan terkunci saat match mulai.</p>
     <div class="rules"><span>Pemenang benar +3</span><span>Skor tepat +2</span><span>Joker 2x · sekali</span></div>
   </header>
 
@@ -172,6 +172,12 @@ dialog .btn+.btn{margin-top:8px}
   <footer id="foot"></footer>
 </div>
 
+<dialog id="terms">
+  <h2>Syarat & Ketentuan</h2>
+  <p id="terms-body" style="white-space:pre-wrap;max-height:60vh;overflow:auto"></p>
+  <button class="btn ghost" data-terms-close>Tutup</button>
+</dialog>
+
 <dialog id="login">
   <h2>Simpan tebakanmu</h2>
   <p>Masuk sekali pakai Google. Skor yang tadi kamu pilih langsung tersimpan setelah kembali.</p>
@@ -186,8 +192,7 @@ const CFG = {
   SUPABASE_URL: 'https://lmdpgbzwlrsbrylljpmp.supabase.co',
   SUPABASE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxtZHBnYnp3bHJzYnJ5bGxqcG1wIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI0NDA1MjEsImV4cCI6MjEwODAxNjUyMX0.4ExJBxLwp1n76FuagX1_cBXqqsm-yy3DcJ8w5KD4XxA', // anon key: memang publik, aman di browser
   GA_ID: '',        // 'G-XXXX' kalau subdomain belum ikut GA esportsku
-  SPONSOR: '',      // 'Brand X' → "Pick'em MPL by Brand X" + disebut di pesan WA
-  TERMS_URL: '',    // isi kalau ada hadiah (S&K wajib)
+  // Judul, sponsor, info hadiah, S&K: diatur di CMS (Teks Tool & Sponsor), bukan di sini.
   ADSENSE_CLIENT: '', // 'ca-pub-1234567890123456' (AdSense → Akun → Informasi akun)
   ADSENSE_SLOT: '',   // ID unit Display responsif (AdSense → Iklan → Menurut unit iklan). Dipakai semua posisi…
   ADSENSE_SLOTS: {},  // …kecuali yang diisi khusus di sini, untuk laporan per posisi:
@@ -213,7 +218,6 @@ if (CFG.GA_ID) {
   window.gtag = function () { dataLayer.push(arguments); };
   gtag('js', new Date()); gtag('config', CFG.GA_ID);
 }
-if (CFG.SPONSOR) $('#sponsor').textContent = ` · by ${CFG.SPONSOR}`;
 
 const S = { user: null, matches: [], picks: {}, resets: new Set(), stats: {}, busy: {}, errs: {}, board: 'global', loadErr: false };
 
@@ -267,9 +271,11 @@ const scoresFor = bo => { const w = (bo + 1) / 2; return Array.from({ length: w 
 /* ---------- Data ---------- */
 async function load() {
   S.loadedAt = Date.now();
-  const [m, st, an, ch] = await Promise.all([sb.from('matches').select('*').order('id'), sb.rpc('pick_stats'),
-    sb.from('announcements').select('body,link').order('created_at', { ascending: false }).limit(3), sb.rpc('champions')]);
+  const [m, st, an, ch, cfg] = await Promise.all([sb.from('matches').select('*').order('id'), sb.rpc('pick_stats'),
+    sb.from('announcements').select('body,link').order('created_at', { ascending: false }).limit(3), sb.rpc('champions'),
+    sb.from('settings').select('*').maybeSingle()]);
   S.news = an.data || []; S.champs = ch.data || [];
+  if (cfg.data) applySettings(cfg.data);
   if (m.error) { S.loadErr = true; return render(); }
   S.loadErr = false;
   S.matches = m.data;
@@ -442,15 +448,22 @@ function renderFoot() {
     ? `Masuk sebagai <b>${esc(nameOf(S.user))}</b> · <button data-logout>Keluar</button> · <button data-delete>Hapus akun & data</button><br>`
     : `<button data-login>Masuk dengan Google</button><br>`)
     + `Ikut gratis, tanpa pembelian apa pun. Poin dihitung otomatis setelah hasil resmi diinput.`
-    + (CFG.TERMS_URL ? `<br><a href="${esc(CFG.TERMS_URL)}" target="_blank" rel="noopener">Syarat & Ketentuan</a>` : '');
+    + (S.settings?.terms ? `<br><button data-terms>Syarat & Ketentuan</button>` : '');
 }
 
+function applySettings(x) {
+  S.settings = x;
+  $('#hero-title').textContent = x.hero_title; $('#hero-sub').textContent = x.hero_subtitle;
+  $('#sponsor').textContent = x.sponsor_name ? ` · by ${x.sponsor_name}` : '';
+  $('#terms-body').textContent = x.terms || '';
+}
 function renderNews() {
   const champ = c => c.scope === 'global'
     ? `<div class="champ global">🏆 <span>Juara Pick'em MPL ID S18: <b>${esc(c.name)}</b> · ${c.points} poin</span></div>`
     : `<div class="champ">🥇 <span>Juara harian ${fmtDay(new Date(c.scope + 'T12:00:00+07:00'))}: <b>${esc(c.name)}</b> · ${c.points} poin</span></div>`;
   const msg = n => `<p class="msg">${esc(n.body)}${n.link ? ` <a href="${esc(n.link)}" target="_blank" rel="noopener">Selengkapnya</a>` : ''}</p>`;
-  const items = (S.news || []).map(msg).join('') + (S.champs || []).slice(0, 3).map(champ).join('');
+  const prize = S.settings?.prize_info ? `<p class="msg">🎁 ${esc(S.settings.prize_info)}</p>` : '';
+  const items = prize + (S.news || []).map(msg).join('') + (S.champs || []).slice(0, 3).map(champ).join('');
   $('#news').innerHTML = items ? `<div class="card news"><h2>Pengumuman</h2>${items}</div>` : '';
 }
 function render() { renderNews(); renderTebak(); renderFoot(); }
@@ -458,7 +471,8 @@ function render() { renderNews(); renderTebak(); renderFoot(); }
 function share() {
   const gf = S.matches.find(m => m.id === 8), p = gf && S.picks[8];
   const line = p ? ` Grand Final versi aku: ${label(gf, 'a')} ${p.pick_a}–${p.pick_b} ${label(gf, 'b')}.` : '';
-  const text = `Aku udah isi Pick'em Playoff MPL ID S18${CFG.SPONSOR ? ` by ${CFG.SPONSOR}` : ''}.${line} Berani adu tebakan? ${location.origin + location.pathname}`;
+  const sp = S.settings?.sponsor_name;
+  const text = `Aku udah isi Pick'em Playoff MPL ID S18${sp ? ` by ${sp}` : ''}.${line} Berani adu tebakan? ${location.origin + location.pathname}`;
   track('pickem_share');
   window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
 }
@@ -485,6 +499,8 @@ document.addEventListener('click', async e => {
   else if ('retry' in t.dataset) load();
   else if ('share' in t.dataset) share();
   else if ('login' in t.dataset) $('#login').showModal();
+  else if ('terms' in t.dataset) $('#terms').showModal();
+  else if ('termsClose' in t.dataset) $('#terms').close();
   else if ('logout' in t.dataset) { await sb.auth.signOut(); }
   else if ('delete' in t.dataset) {
     if (!confirm('Hapus akun dan semua tebakanmu? Ini tidak bisa dibatalkan.')) return;

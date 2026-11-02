@@ -8,18 +8,20 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 
 - Frontend: `index.html` satu file, vanilla JS, `@supabase/supabase-js@2.45.4` UMD dari jsDelivr, font Plus Jakarta Sans. Host statis di subdomain (atau tempel di blok Custom HTML WP — sama saja).
 - Backend: Supabase (free tier): Auth Google + Postgres. Semua aturan di DB; browser hanya menampilkan.
-- Admin: halaman `/admin/` (RLS: hanya kolom score_a, score_b, starts_at, time_tbc, void, hanya email di `admins`). Table Editor Supabase tetap bisa, tapi hanya untuk owner.
+- Admin & konten: CMS Directus 11 (`cms/`). Hak per orang di Directus (Owner / PIC Skor / Editor Konten); batas keras di database lewat role `directus` (`supabase/cms.sql`). Dashboard Supabase hanya untuk owner.
 
 ## Nodes
 
 | ID | Tipe | Path | Tanggung jawab |
 |---|---|---|---|
-| `page:admin` | page | admin/index.html | `/admin/`: login Google → `is_admin()`; metrik tes, hasil/jadwal/void per match (dropdown skor valid + konfirmasi + peringatan koreksi), pengumuman, log |
-| `table:admins` | table | supabase/schema.sql | Email Google admin (lowercase). Hanya diisi lewat SQL Editor |
-| `fn:is_admin` | sql | supabase/schema.sql | Email user ada di `admins` DAN login Google (email login lain ditolak) |
 | `table:admin_log` | table | supabase/schema.sql | Trigger `match_log`: siapa/kapan/sebelum→sesudah tiap perubahan match (termasuk perubahan otomatis bracket) |
 | `table:save_days` | table | supabase/schema.sql | Hari WIB pemain menyimpan tebakan → metrik "kembali ≥2 hari" |
-| `fn:admin_metrics` | rpc | supabase/schema.sql | Pemain, tebakan, kembali ≥2 hari, main hari ini, Joker, tebakan per match; non-admin ditolak |
+| `cms:directus` | cms | cms/docker-compose.yml, cms/.env.example | Directus 11.17.4 di `cms.esportsku.com`, konek ke Supabase sebagai role DB `directus` (session pooler) |
+| `cms:setup` | script | cms/setup.mjs | Idempoten: koleksi + label ID + urutan form, role/policy PIC Skor & Editor Konten (hak per kolom), dashboard Metrik |
+| `role:directus` | db-role | supabase/cms.sql | Grant terbatas: update 5 kolom matches, CRUD announcements, update 5 kolom settings, baca metrics/admin_log. Tidak bisa baca predictions/players/auth |
+| `table:settings` | table | supabase/schema.sql | Singleton (id=1): judul, subjudul, sponsor, info hadiah, S&K → dibaca tool |
+| `table:metrics` | table | supabase/schema.sql | Singleton metrik tes PRD, diisi `refresh_all()` tiap menit (tabel, bukan view: Directus tidak membaca view) |
+| `table:metrics_per_match` | table | supabase/schema.sql | Jumlah tebakan per match, diisi `refresh_all()` |
 | `page:pickem` | page | index.html | Tab Tebak + Klasemen, login sheet, footer akun |
 | `ui:match-card` | ui | index.html `matchCard()` | 8 state card (belum login, TBD, tersimpan, terkunci+distribusi, selesai+poin, void, reset, error) |
 | `ui:board` | ui | index.html `renderBoard()` | Kartu rank saya + top 100, Global / Hari ini (tanggal WIB, di-clamp ke 4–8 Nov) |
@@ -52,7 +54,9 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 - `page:pickem` → reads `table:matches` (anon), `table:predictions` + `table:pick_resets` (RLS: milik sendiri), calls `fn:pick_stats`, `fn:leaderboard`, `fn:save_prediction`, `fn:delete_my_account`.
 - `admin` → writes `table:matches` → triggers `fn:on_match_change` → writes `table:predictions.points`, `table:matches.team_*` (rekursif ke babak berikut), `table:pick_resets`, `table:board_dirty`.
 - `fn:save_prediction` → writes `table:predictions`, `table:players`, `table:save_days`.
-- `page:admin` → updates `table:matches` (guarded-by `matches_admin_update` + `fn:is_admin`) → triggers `fn:on_match_change` + `match_log` → `table:admin_log`; writes `table:announcements`; reads `fn:admin_metrics`, `table:admin_log`.
+- `cms:directus` (role:directus) → updates `table:matches` (5 kolom) → triggers `fn:on_match_change` + `match_log` → `table:admin_log`; CRUD `table:announcements`; updates `table:settings`; reads `table:metrics`, `table:metrics_per_match`, `table:admin_log`.
+- `job:pickem-refresh` → writes `table:metrics`, `table:metrics_per_match`.
+- `page:pickem` → reads `table:settings`.
 - `job:pickem-refresh` → reads `table:predictions`, `table:matches`, `table:players`, `table:board_dirty` → writes `table:board`, `table:stats`.
 - `fn:champions` → reads `table:board`, `table:matches`; `page:pickem` → reads `table:announcements`.
 - `fn:leaderboard` → reads `table:board`; `fn:pick_stats` → reads `table:stats`.
@@ -87,7 +91,12 @@ Belum dicegah (bukan pelanggaran aturan, tapi penyalahgunaan): multi-akun Google
 
 - 6 slot (3 per tab), bukan 2 seperti PRD — permintaan owner 2026-11-01. Batas yang dipegang: tidak pernah di dalam card / bersebelahan tombol skor, hanya di jeda antar hari/blok, tidak refresh. Estimasi PRD: 2 slot ≈ $22 di 5rb pemain (eCPM $1); 6 slot kira-kira $40–50 karena slot bawah jarang terlihat. Pantau metrik 'kembali lagi' — kalau turun, kurangi slot (hapus entri di `TEBAK_ADS` / sembunyikan `board-50`).
 
-## Keputusan: admin panel statis, bukan Next.js (2026-11-01)
+## Keputusan: CMS Directus 11 (2026-11-02) — menggantikan halaman /admin statis
+
+Owner: ada editor konten & banyak admin → pakai CMS. Directus dipilih karena dipasang DI ATAS database yang ada (trigger poin/bracket/anti-curang tetap jalan, tanpa migrasi); Payload/Strapi mau memiliki skema sendiri = bangun ulang. Versi 11.17.4, bukan 12: Directus 12 tanpa lisensi (Core) mengabaikan hak akses per kolom, mematikan SSO user biasa, dan membatasi seat (diverifikasi di kode `@directus/api` 12.6.0: `custom_permission_rules_enabled` ditolak). v11 BSL 1.1: gratis produksi bila total keuangan < US$5 jt. Risiko: v11 tidak lagi dapat update; dampak dibatasi role DB `directus` (tidak bisa baca tebakan/nama/email, hanya 5 kolom matches).
+Diuji lokal (Postgres 16 + Directus 11.17.4): PIC isi skor ✓ (bracket & log jalan), PIC ubah tim/BO/sponsor/hapus pengumuman/baca tebakan ✗; Editor ubah sponsor/hapus pengumuman ✓, isi skor/jadwal/baca log/nama ✗; Owner pun tidak bisa baca predictions/players (grant DB).
+
+## (Lama) Keputusan: admin panel statis, bukan Next.js (2026-11-01) — diganti CMS di atas
 
 Owner bertanya kenapa tidak CMS/Next.js. Admin panel memang perlu (PIC skor tidak boleh pegang dashboard Supabase = akses penuh DB; perlu jejak siapa ubah skor). Next.js ditolak: 3 hari sebelum playoff, menambah build + server + hosting kedua tanpa fitur tambahan — hak akses tetap harus dijaga di database. Kalau setelah tes (10 Nov) diputuskan lanjut ke Tebak Skor penuh (multi-turnamen, banyak admin, editor konten), saat itulah pindah ke Next.js.
 
@@ -105,7 +114,6 @@ Owner bertanya kenapa tidak CMS/Next.js. Admin panel memang perlu (PIC skor tida
 1. Project: `esportsku-pickem` (ref `lmdpgbzwlrsbrylljpmp`, Singapore), sudah aktif lagi 2026-11-01. SQL Editor → tempel seluruh `supabase/schema.sql` → Run. File ini sekalian menghapus tabel prototipe lama (kosong).
 2. Auth → Providers → Google: isi Client ID/Secret dari Google Cloud (OAuth consent: External, publish). Redirect URI di Google = `https://<ref>.supabase.co/auth/v1/callback`.
 3. Auth → URL Configuration: Site URL = `https://tebak.esportsku.com/`, Redirect URLs = `https://tebak.esportsku.com/**` (tool + `/admin/`).
-3b. Daftarkan admin (owner + PIC skor tiap hari) di SQL Editor: `insert into public.admins values ('nama@gmail.com');` (huruf kecil). Hapus: `delete from public.admins where email = '…';`
 4. `CFG.SUPABASE_URL` + `CFG.SUPABASE_KEY` sudah terisi project di atas; isi `GA_ID` kalau subdomain belum ikut GA esportsku.
 5. Upload `index.html` ke host statis subdomain (Cloudflare Pages / Vercel / Netlify / folder di server WP).
 6. AdSense: isi `CFG.ADSENSE_CLIENT` (ca-pub-…) + `ADSENSE_SLOT` (1 unit Display responsif dipakai semua posisi; boleh ID khusus per posisi di `ADSENSE_SLOTS` untuk laporan per posisi). Posisi Tebak diatur di `CFG.TEBAK_ADS`. Lalu:
@@ -114,13 +122,20 @@ Owner bertanya kenapa tidak CMS/Next.js. Admin panel memang perlu (PIC skor tida
    - Jangan pasang Monetag popunder/push di subdomain yang sama dengan AdSense (kebijakan AdSense soal pop-up).
 7. Kalau saat jalankan schema muncul NOTICE pg_cron: Database → Extensions → aktifkan pg_cron, lalu jalankan ulang blok `do $$ … cron.schedule …`. Tanpa ini klasemen tidak pernah update.
 
+7. CMS (setelah schema.sql):
+   a. Ganti password di `supabase/cms.sql` → jalankan bagian 1 di SQL Editor.
+   b. Deploy `cms/` (Railway/Render/VPS Docker, ~512 MB RAM) dengan `.env` dari `.env.example`, domain `cms.esportsku.com`.
+   c. `DIRECTUS_URL=https://cms.esportsku.com DIRECTUS_EMAIL=… DIRECTUS_PASSWORD=… node cms/setup.mjs`
+   d. Jalankan bagian 2 `supabase/cms.sql` (kunci tabel directus_* dari API publik).
+   e. Login Owner → isi formulir project owner (BSL) → Pengguna → buat akun staf, pilih role PIC Skor / Editor Konten.
+
 ## Operasional admin
 
-Semua lewat `https://tebak.esportsku.com/admin/` (login Google admin). PIC skor tidak perlu akses dashboard Supabase.
+Semua lewat CMS `https://cms.esportsku.com` (Directus). PIC skor & editor konten tidak perlu akses dashboard Supabase.
 
-- Hasil: pilih dari dropdown (hanya skor valid) → Simpan → konfirmasi.
-- Jam resmi keluar: ubah jam (WIB) + hilangkan centang "Jam belum resmi". Sekarang M3–M8 dipasang 12.00 WIB sebagai batas aman (lebih baik tutup kecepetan daripada orang bisa nebak setelah match mulai).
-- Pengumuman: bagian Pengumuman di `/admin/` → Terbitkan / Tarik. Tampil di tool saat halaman dibuka / balik ke tab.
+- Hasil: Hasil & Jadwal → pilih match → Skor Tim A/B (dropdown) → Simpan (✓). Kombinasi tidak valid ditolak database (pesan Directus: "An unexpected error occurred").
+- Jam resmi keluar: ubah "Mulai" + hilangkan centang "Jam belum resmi". Jam di CMS mengikuti zona waktu perangkat staf. Sekarang M3–M8 dipasang 12.00 WIB sebagai batas aman (lebih baik tutup kecepetan daripada orang bisa nebak setelah match mulai).
+- Pengumuman: koleksi Pengumuman → buat item / matikan "Tayang". Teks tool, sponsor, hadiah, S&K: koleksi Teks Tool & Sponsor (Editor Konten). Tampil di tool saat halaman dibuka / balik ke tab.
 - Juara harian & global tampil sendiri (≤1 menit setelah skor terakhir hari itu diisi). Konten/sosial tinggal ambil dari kartu Pengumuman.
 - Walkover/batal: centang Void (isi hasil juga kalau ada pemenang supaya bracket jalan).
 - Koreksi skor: edit skor lagi; kalau tim babak berikut berubah, tebakan match itu terhapus dan pemain lihat pesan di card.
