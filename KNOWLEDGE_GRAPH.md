@@ -24,6 +24,13 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 | `fn:admin_metrics` | rpc | supabase/schema.sql | Pemain, tebakan, kembali ≥2 hari, hari ini, Joker, diskualifikasi, per match |
 | `fn:admin_players` | rpc | supabase/schema.sql | Semua pemain (maks 50rb) urut rank global: nama, email, daftar, login terakhir, poin, `same_ip` (akun lain dari IP sama, dari auth.sessions) |
 | `fn:admin_set_disqualified` | rpc | supabase/schema.sql | Wajib alasan; set `players.disqualified` → keluar dari board & champions (≤1 menit, hari terkait ditandai dirty) |
+| `table:quiz_questions` | table | supabase/schema.sql + supabase/quiz/seed.sql | 115 soal pilihan ganda MPL ID S1–S17 (juara, final, skor, MVP, rekor, internasional, venue); `source` per soal; `active` diatur admin. Pemain tidak bisa SELECT (kunci jawaban) |
+| `script:quiz-build` | script | supabase/quiz/build.py | Fakta terverifikasi → seed.sql deterministik (seed 18). Fakta yang bertentangan antar sumber tidak dijadikan soal |
+| `table:quiz_answers` | table | supabase/schema.sql | PK (user, soal): satu soal sekali seumur pemain; `day` WIB |
+| `fn:quiz_today` | rpc | supabase/schema.sql | 5 soal/hari/pemain via `quiz_set()` (urutan md5(user,hari,id), stabil; tanpa soal yang pernah dijawab); kunci & fakta hanya untuk soal terjawab |
+| `fn:quiz_answer` | rpc | supabase/schema.sql | Login Google, soal harus di set hari ini, belum dijawab; tulis players + save_days (ikut metrik "kembali") |
+| `fn:refresh_quiz_board` / `fn:quiz_leaderboard` | rpc | supabase/schema.sql | Board scope `kuis` tiap menit: poin = benar, seri → selesai lebih awal; diskualifikasi berlaku |
+| `ui:quiz` | ui | public/index.html `loadQuiz()/renderQuiz()/answerQuiz()` | Tab Kuis; Klasemen → segmen Kuis. Tanpa slot iklan di dekat pilihan jawaban |
 | `page:pickem` | page | public/index.html | Tab Tebak + Klasemen, login sheet, footer akun |
 | `ui:match-card` | ui | public/index.html `matchCard()` | 8 state card (belum login, TBD, tersimpan, terkunci+distribusi, selesai+poin, void, reset, error) |
 | `ui:board` | ui | public/index.html `renderBoard()` | Kartu rank saya + top 100, Global / Hari ini (tanggal WIB, di-clamp ke 4–8 Nov) |
@@ -58,6 +65,8 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 - `fn:save_prediction` → writes `table:predictions`, `table:players`, `table:save_days`.
 - `page:admin` → updates `table:matches` (5 kolom, guarded-by `matches_admin_update` + `fn:is_admin`) → triggers `fn:on_match_change` + `match_log` → `table:admin_log`; writes `table:announcements`, `table:settings`; calls `fn:admin_metrics`, `fn:admin_players`, `fn:admin_set_disqualified` → `table:players`, `table:board_dirty`.
 - `fn:refresh_board` → reads `table:players` (lewati `disqualified`).
+- `ui:quiz` → calls `fn:quiz_today`, `fn:quiz_answer` → writes `table:quiz_answers`, `table:players`, `table:save_days`; `job:pickem-refresh` → `fn:refresh_quiz_board` → `table:board` (scope kuis).
+- `page:admin` → reads/updates (`active`) `table:quiz_questions`.
 - `page:pickem` → reads `table:settings`.
 - `job:pickem-refresh` → reads `table:predictions`, `table:matches`, `table:players`, `table:board_dirty` → writes `table:board`, `table:stats`.
 - `fn:champions` → reads `table:board`, `table:matches`; `page:pickem` → reads `table:announcements`.
@@ -86,12 +95,17 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 
 ## Uji kecurangan (2026-11-01, lokal, stub meniru default privileges Supabase)
 
-36/36 AMAN (termasuk pengumuman palsu, draft, metrik/log admin, ubah tim/best_of/sponsor, lihat email pemain, diskualifikasi orang, daftar diri jadi admin; peniru email admin via login email ditolak): insert/update/delete langsung, poin palsu, tebak atas nama orang lain, intip tebakan orang, tebak/ganti setelah kunci, skor mustahil/seri/negatif/NULL, match TBD/tidak ada, Joker kedua, race 2 Joker bersamaan ×20 (unique index), ubah/buat match, ubah snapshot klasemen, baca players/auth.users, spam refresh_all/refresh_board, hapus akun orang lain, akun email, anon menebak/membaca, distribusi bocor setelah jadwal diundur (diperbaiki: pick_stats cek kunci saat dibaca).
+42/42 AMAN (termasuk kuis: kunci jawaban, set harian, tulis langsung; pengumuman palsu, draft, metrik/log admin, ubah tim/best_of/sponsor, lihat email pemain, diskualifikasi orang, daftar diri jadi admin; peniru email admin via login email ditolak): insert/update/delete langsung, poin palsu, tebak atas nama orang lain, intip tebakan orang, tebak/ganti setelah kunci, skor mustahil/seri/negatif/NULL, match TBD/tidak ada, Joker kedua, race 2 Joker bersamaan ×20 (unique index), ubah/buat match, ubah snapshot klasemen, baca players/auth.users, spam refresh_all/refresh_board, hapus akun orang lain, akun email, anon menebak/membaca, distribusi bocor setelah jadwal diundur (diperbaiki: pick_stats cek kunci saat dibaca).
 Belum dicegah (bukan pelanggaran aturan, tapi penyalahgunaan): multi-akun Google (PRD: dicek saat verifikasi hadiah); spam save_prediction dari akun sah (tidak ada rate limit per user — ~1 ms/panggilan, hanya mengubah baris miliknya sendiri).
 
 ## Keputusan iklan
 
 - 6 slot (3 per tab), bukan 2 seperti PRD — permintaan owner 2026-11-01. Batas yang dipegang: tidak pernah di dalam card / bersebelahan tombol skor, hanya di jeda antar hari/blok, tidak refresh. Estimasi PRD: 2 slot ≈ $22 di 5rb pemain (eCPM $1); 6 slot kira-kira $40–50 karena slot bawah jarang terlihat. Pantau metrik 'kembali lagi' — kalau turun, kurangi slot (hapus entri di `TEBAK_ADS` / sembunyikan `board-50`).
+
+## Keputusan: kuis harian (2026-11-02)
+
+Owner minta "ratusan soal dari materi MPL season lama" (tidak ada file materi yang dikirim) → owner pilih **kuis harian, klasemen terpisah**. Riset via WebSearch (Liquipedia/oneesports/skor.id diblokir untuk WebFetch di sesi ini): fakta dipakai hanya jika konsisten di ≥2 sumber; skor final S13 (sumber bertentangan) & julukan EVOS/Bigetron (tidak ditemukan) tidak dijadikan soal. 115 soal (bukan ratusan): menambah soal = tambah fakta terverifikasi di build.py, bukan mengarang.
+Uji: attack.sql 42/42 AMAN (baca kunci, quiz_set, bocor via quiz_today, jawab di luar set, tulis langsung, ubah soal); set stabil saat refresh, hari berikut 5 soal baru tanpa ulang, jawab dua kali ditolak, klasemen kuis & tiebreak benar; UI kuis & bank soal admin lolos di Chromium.
 
 ## Keputusan: tanpa CMS (2026-11-02, final)
 
@@ -132,6 +146,7 @@ Owner bertanya kenapa tidak CMS/Next.js. Admin panel memang perlu (PIC skor tida
 ## Setup (sekali)
 
 1. Project: `esportsku-pickem` (ref `lmdpgbzwlrsbrylljpmp`, Singapore), sudah aktif lagi 2026-11-01. SQL Editor → tempel seluruh `supabase/schema.sql` → Run. File ini sekalian menghapus tabel prototipe lama (kosong).
+1b. SQL Editor → jalankan `supabase/quiz/seed.sql` (bank soal kuis; aman diulang).
 2. Auth → Providers → Google: isi Client ID/Secret dari Google Cloud (OAuth consent: External, publish). Redirect URI di Google = `https://<ref>.supabase.co/auth/v1/callback`.
 3. Auth → URL Configuration: Site URL = `https://tebak.esportsku.com/`, Redirect URLs = `https://tebak.esportsku.com/**` (tool + `/admin/`).
 4. `CFG.SUPABASE_URL` + `CFG.SUPABASE_KEY` sudah terisi project di atas; isi `GA_ID` kalau subdomain belum ikut GA esportsku.

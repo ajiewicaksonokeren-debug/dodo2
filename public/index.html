@@ -37,7 +37,7 @@ button:disabled{cursor:not-allowed}
 .rules{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 .rules span{font-size:12px;font-weight:600;padding:5px 10px;border-radius:999px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.14)}
 
-.tabs{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin:-48px 0 16px;
+.tabs{position:sticky;top:0;z-index:5;display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;margin:-48px 0 16px;
   border-radius:14px;background:rgba(255,255,255,.96);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);box-shadow:var(--card-sh)}
 .tabs button{padding:11px;border-radius:10px;font-weight:700;color:var(--muted)}
 .tabs button[aria-selected=true]{background:linear-gradient(160deg,#4D7DFF,#1D5BFF 55%,#0F47E0);color:#fff;box-shadow:0 10px 20px -10px rgba(29,91,255,.6)}
@@ -91,6 +91,17 @@ button:disabled{cursor:not-allowed}
 .btn.ghost{border:1.5px solid var(--border);background:#fff}
 
 .seg{display:flex;gap:6px;margin-bottom:12px}
+.quiz-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:4px 12px}
+.quiz-head span{font-size:13px;font-weight:700;color:var(--blue-600)}
+.quiz-head p{flex-basis:100%;font-size:13px;color:var(--text2)}
+.quiz h3{font-size:16px;line-height:1.35;margin:8px 0 12px}
+.opts{display:grid;gap:8px}
+.opt{min-height:44px;border:1.5px solid var(--border);border-radius:10px;background:#fff;text-align:left;padding:10px 14px;font-weight:600;transition:border-color .12s,transform .12s}
+.opt:not(:disabled):hover{border-color:var(--blue);transform:translateY(-1px)}
+.opt:disabled{cursor:default}
+.opt.right{background:var(--ok-bg);border-color:var(--ok);color:var(--ok)}
+.opt.wrong{background:var(--bad-bg);border-color:var(--bad);color:var(--bad)}
+.fact{margin-top:12px;font-size:13px;color:var(--text2)}
 .seg button{padding:8px 14px;border-radius:999px;font-size:13px;font-weight:700;border:1.5px solid var(--border);background:#fff;color:var(--text2)}
 .seg button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:#fff}
 .me{background:radial-gradient(90% 70% at 100% 0%,#1E3470 0%,#0A1226 60%);color:#fff}
@@ -145,6 +156,7 @@ dialog .btn+.btn{margin-top:8px}
 
   <nav class="tabs" role="tablist">
     <button role="tab" aria-selected="true" data-tab="tebak">Tebak</button>
+    <button role="tab" aria-selected="false" data-tab="kuis">Kuis</button>
     <button role="tab" aria-selected="false" data-tab="klasemen">Klasemen</button>
   </nav>
 
@@ -155,10 +167,12 @@ dialog .btn+.btn{margin-top:8px}
     <div id="tebak-msg"></div>
     <div id="days"></div><!-- per hari + slot iklan antar hari, dibangun sekali oleh buildDays() -->
   </main>
+  <main id="kuis" hidden><div id="quiz"></div></main>
   <main id="klasemen" hidden>
     <div class="seg">
       <button aria-pressed="true" data-board="global">Global</button>
       <button aria-pressed="false" data-board="day">Hari ini</button>
+      <button aria-pressed="false" data-board="kuis">Kuis</button>
     </div>
     <div id="board"></div>
     <!-- Slot iklan statis (tidak ikut di-render ulang = tidak refresh). Tampil hanya kalau ada isi di sekitarnya. -->
@@ -418,7 +432,8 @@ async function renderBoard() {
   const el = $('#board'), day = S.board === 'day' ? boardDay() : null;
   el.innerHTML = '<div class="card empty">Memuat klasemen…</div>'; $('#board-mid').innerHTML = $('#board-rest').innerHTML = '';
   document.querySelectorAll('#klasemen .ad').forEach(a => a.hidden = true);
-  const { data, error } = await sb.rpc('leaderboard', day ? { p_day: day } : {});
+  const quiz = S.board === 'kuis', unit = quiz ? 'benar' : 'skor tepat';
+  const { data, error } = quiz ? await sb.rpc('quiz_leaderboard') : await sb.rpc('leaderboard', day ? { p_day: day } : {});
   if (error) return el.innerHTML = `<div class="card empty">Gagal memuat klasemen.<br><br><button class="btn ghost" data-board-retry>Coba lagi</button></div>`;
   const me = data.find(r => r.is_me), top = data.filter(r => r.rank <= 100);
   const dayLabel = day ? `<p class="sub">${fmtDay(new Date(day + 'T12:00:00+07:00'))}</p>` : '';
@@ -426,13 +441,13 @@ async function renderBoard() {
     ? `<div class="card me"><div class="sub">Peringkatmu</div><div class="big">Belum masuk</div>${dayLabel}<button class="btn primary" data-login>Masuk untuk ikut klasemen</button></div>`
     : me
       ? `<div class="card me"><div class="sub">Peringkatmu ${day ? 'hari ini' : ''}</div><div class="big">#${me.rank.toLocaleString('id-ID')} · ${me.points} poin</div>
-         <div class="sub">${me.exact} skor tepat · ${me.picks} tebakan</div>${dayLabel}<button class="btn wa" data-share>Tantang teman via WhatsApp</button></div>`
-      : Object.keys(S.picks).length
+         <div class="sub">${me.exact} ${unit} · ${me.picks} ${quiz ? 'soal dijawab' : 'tebakan'}</div>${dayLabel}<button class="btn wa" data-share>Tantang teman via WhatsApp</button></div>`
+      : (quiz ? (S.quiz || []).some(q => q.choice != null) : Object.keys(S.picks).length)
         ? `<div class="card me"><div class="sub">Peringkatmu</div><div class="big">Sedang dihitung</div><div class="sub">Klasemen diperbarui tiap menit. Cek lagi sebentar.</div>${dayLabel}<button class="btn wa" data-share>Tantang teman via WhatsApp</button></div>`
         : `<div class="card me"><div class="sub">Peringkatmu</div><div class="big">Belum menebak</div>${dayLabel}<button class="btn primary" data-goto="tebak">Isi tebakan</button></div>`;
   if (!top.length) return el.innerHTML = meCard + `<div class="card empty">Belum ada yang menebak. Jadilah yang pertama.</div>`;
   const row = r => `<div class="row ${r.rank <= 3 ? 'top' : ''} ${r.is_me ? 'mine' : ''}"><span class="rk">#${r.rank}</span>
-    <span class="nm">${esc(r.name)}${r.is_me ? ' (kamu)' : ''}<small>${r.exact} skor tepat</small></span><span class="pt">${r.points}</span></div>`;
+    <span class="nm">${esc(r.name)}${r.is_me ? ' (kamu)' : ''}<small>${r.exact} ${unit}</small></span><span class="pt">${r.points}</span></div>`;
   const block = rows => rows.length ? `<div class="card rows">${rows.map(row).join('')}</div>` : '';
   el.innerHTML = meCard + block(top.slice(0, 10));
   $('#board-mid').innerHTML = block(top.slice(10, 50));
@@ -440,6 +455,42 @@ async function renderBoard() {
   // Iklan hanya di antara konten: setelah rank 10 selalu, setelah rank 50 & di akhir hanya kalau daftarnya panjang.
   const ad = n => document.querySelector(`[data-ad="${n}"]`);
   ad('board-10').hidden = false; ad('board-50').hidden = top.length <= 50; ad('board-end').hidden = top.length <= 90;
+}
+
+/* ---------- Kuis harian ---------- */
+async function loadQuiz() {
+  const el = $('#quiz');
+  if (!S.user) return el.innerHTML = `<div class="card empty"><b>Kuis MPL harian</b><br>5 soal tiap hari seputar sejarah MPL ID. Klasemennya terpisah dari tebak skor.<br><br><button class="btn primary" data-login>Masuk untuk main</button></div>`;
+  if (!S.quiz) el.innerHTML = '<div class="card empty">Memuat soal…</div>';
+  const { data, error } = await sb.rpc('quiz_today');
+  if (error) return el.innerHTML = `<div class="card empty">${esc(error.message)}<br><br><button class="btn ghost" data-quiz-retry>Coba lagi</button></div>`;
+  S.quiz = data; renderQuiz();
+}
+function renderQuiz() {
+  const qs = S.quiz || [], done = qs.filter(q => q.choice != null).length, right = qs.filter(q => q.choice != null && q.choice === q.answer).length;
+  const head = `<div class="card quiz-head"><b>Kuis MPL harian</b><span>${done}/${qs.length} dijawab · ${right} benar</span>
+    <p>+1 poin per jawaban benar, sekali jawab. Soal baru tiap hari pukul 00.00 WIB. Klasemen: tab Klasemen → Kuis.</p></div>`;
+  if (!qs.length) return $('#quiz').innerHTML = head + '<div class="card empty">Semua soal di bank sudah kamu jawab. Mantap!</div>';
+  const card = (q, i) => {
+    const answered = q.choice != null;
+    const opts = q.options.map((o, j) => {
+      const cls = !answered ? 'opt' : j === q.answer ? 'opt right' : j === q.choice ? 'opt wrong' : 'opt';
+      return `<button class="${cls}" ${answered || S.qbusy ? 'disabled' : ''} data-q="${q.id}" data-c="${j}">${esc(o)}</button>`;
+    }).join('');
+    const fact = answered ? `<p class="fact">${q.choice === q.answer ? '✓ Benar! ' : '✗ Kurang tepat. '}${esc(q.fact)}</p>` : '';
+    return `<article class="card quiz"><div class="m-head"><span><b>Soal ${i + 1}</b> · ${esc(q.category)}</span></div><h3>${esc(q.question)}</h3><div class="opts">${opts}</div>${fact}</article>`;
+  };
+  $('#quiz').innerHTML = head + qs.map(card).join('')
+    + (done === qs.length ? `<div class="card empty">Selesai untuk hari ini: <b>${right}/${qs.length}</b> benar. Balik lagi besok untuk 5 soal baru!</div>` : '');
+}
+async function answerQuiz(id, c) {
+  S.qbusy = true; renderQuiz();
+  const { data, error } = await sb.rpc('quiz_answer', { p_question: id, p_choice: c });
+  S.qbusy = false;
+  if (error) { toast(error.message); return loadQuiz(); }
+  Object.assign(S.quiz.find(x => x.id === id), { choice: c, answer: data.answer, fact: data.fact });
+  track('pickem_quiz', { correct: data.correct });
+  renderQuiz();
 }
 
 /* ---------- Render: footer ---------- */
@@ -486,15 +537,18 @@ document.addEventListener('click', async e => {
   else if (t.dataset.tab || t.dataset.goto) {
     const tab = t.dataset.tab || t.dataset.goto;
     document.querySelectorAll('[data-tab]').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === tab));
-    $('#tebak').hidden = tab !== 'tebak'; $('#klasemen').hidden = tab !== 'klasemen';
-    if (tab === 'klasemen') { track('pickem_board', { tab: S.board === 'day' ? 'harian' : 'global' }); renderBoard(); }
+    ['tebak', 'kuis', 'klasemen'].forEach(id => { $('#' + id).hidden = id !== tab; });
+    if (tab === 'kuis') loadQuiz();
+    if (tab === 'klasemen') { track('pickem_board', { tab: S.board === 'day' ? 'harian' : S.board }); renderBoard(); }
   }
   else if (t.dataset.board) {
     S.board = t.dataset.board;
     document.querySelectorAll('[data-board]').forEach(b => b.setAttribute('aria-pressed', b.dataset.board === S.board));
-    track('pickem_board', { tab: S.board === 'day' ? 'harian' : 'global' });
+    track('pickem_board', { tab: S.board === 'day' ? 'harian' : S.board });
     renderBoard();
   }
+  else if (t.dataset.q) answerQuiz(+t.dataset.q, +t.dataset.c);
+  else if ('quizRetry' in t.dataset) loadQuiz();
   else if ('boardRetry' in t.dataset) renderBoard();
   else if ('retry' in t.dataset) load();
   else if ('share' in t.dataset) share();
@@ -532,6 +586,7 @@ async function afterAuth() {
     document.getElementById(`m${pending.id}`)?.scrollIntoView({ block: 'center' });
   }
   if (!$('#klasemen').hidden) renderBoard();
+  if (!$('#kuis').hidden) loadQuiz();
 }
 // Render ulang hanya saat ada match yang baru terkunci (tidak ada request, fokus keyboard tidak hilang).
 let lockSig = '';

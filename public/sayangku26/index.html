@@ -3,7 +3,6 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,nofollow">
 <title>Admin Pick'em · esportsku</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
@@ -110,6 +109,14 @@ tr.dq td:last-child,tr.dq td:nth-last-child(2){text-decoration:none}
       <div class="msg"></div>
     </form>
 
+    <h2>Bank soal kuis</h2>
+    <div class="card">
+      <p class="log">Tiap pemain dapat 5 soal acak per hari dari soal yang aktif. Kalau ada soal yang salah atau diprotes: <b>Nonaktifkan</b> (tidak keluar lagi; jawaban yang sudah masuk tetap dihitung).
+        Tambah soal: edit <code>supabase/quiz/build.py</code> → jalankan → tempel <code>supabase/quiz/seed.sql</code> di SQL Editor.</p>
+      <input id="q-search" placeholder="Cari soal, jawaban, atau sumber…" style="width:100%;min-height:42px;border:1.5px solid var(--border);border-radius:10px;padding:8px 10px;margin:12px 0">
+      <div id="questions" style="overflow-x:auto"></div>
+    </div>
+
     <h2>Log perubahan match</h2>
     <div class="card" id="log"></div>
   </main>
@@ -144,7 +151,7 @@ async function boot(user) {
   const { data: ok } = await sb.rpc('is_admin');
   if (!ok) return gate(`${user.email} bukan admin. Minta owner menambahkan email ini, lalu muat ulang.`, false);
   $('#gate').hidden = true; $('#app').hidden = false;
-  await Promise.all([loadMatches(), loadAnnouncements(), loadLog(), loadPlayers(), loadSettings()]);
+  await Promise.all([loadMatches(), loadAnnouncements(), loadLog(), loadPlayers(), loadSettings(), loadQuestions()]);
 }
 
 /* ---------- Metrik + match ---------- */
@@ -301,6 +308,31 @@ $('#csv').onclick = () => {
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `pemain-pickem-${new Date().toISOString().slice(0, 10)}.csv` });
   a.click(); URL.revokeObjectURL(a.href);
 };
+
+/* ---------- Bank soal kuis ---------- */
+let QS = [];
+async function loadQuestions() {
+  const { data, error } = await sb.from('quiz_questions').select('id,category,question,options,answer,source,active').order('id');
+  if (error) return $('#questions').innerHTML = `<p class="msg err">Gagal memuat: ${esc(error.message)}</p>`;
+  QS = data || []; renderQuestions();
+}
+function renderQuestions() {
+  const term = $('#q-search').value.trim().toLowerCase();
+  const list = QS.filter(q => !term || [q.question, q.options[q.answer], q.source, q.category].join(' ').toLowerCase().includes(term));
+  $('#questions').innerHTML = `<p class="log">${QS.filter(q => q.active).length} aktif dari ${QS.length} soal${term ? ` · ${list.length} cocok` : ''}</p>
+    <table><tr><th>#</th><th>Kategori</th><th>Soal</th><th>Jawaban</th><th>Sumber</th><th></th></tr>${list.map(q => `<tr class="${q.active ? '' : 'dq'}">
+      <td>${q.id}</td><td>${esc(q.category)}</td><td style="white-space:normal;min-width:260px">${esc(q.question)}</td><td><b>${esc(q.options[q.answer])}</b></td>
+      <td style="white-space:normal;max-width:220px">${esc(q.source)}</td>
+      <td><button class="btn ghost" data-qa="${q.id}" data-on="${!q.active}">${q.active ? 'Nonaktifkan' : 'Aktifkan'}</button></td></tr>`).join('')}</table>`;
+}
+$('#q-search').addEventListener('input', renderQuestions);
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-qa]');
+  if (!b) return;
+  const { data, error } = await sb.from('quiz_questions').update({ active: b.dataset.on === 'true' }).eq('id', +b.dataset.qa).select('id');
+  if (error || !data?.length) return alert(error ? `Gagal: ${error.message}` : 'Ditolak: akun ini bukan admin.');
+  loadQuestions();
+});
 
 /* ---------- Teks tool & sponsor ---------- */
 const SET_FIELDS = ['hero_title', 'hero_subtitle', 'sponsor_name', 'prize_info', 'terms'];

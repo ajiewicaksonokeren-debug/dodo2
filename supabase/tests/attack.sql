@@ -57,6 +57,12 @@ select pg_temp.t('32 Ubah nama tim / best_of', $$update matches set team_a = 'X'
 select pg_temp.t('33 Ubah teks tool / sponsor', $$update settings set sponsor_name = 'Judi Online'$$, 0);
 select pg_temp.t('34 Lihat email & data pemain (admin_players)', $$select * from admin_players()$$);
 select pg_temp.t('35 Diskualifikasi korban', $$select admin_set_disqualified('bbbbbbbb-0000-0000-0000-000000000002', true, 'iseng')$$);
+select pg_temp.t('37 Kuis: baca kunci jawaban langsung', $$select answer from quiz_questions$$, 0);
+select pg_temp.t('38 Kuis: panggil quiz_set (bocorkan kunci)', $$select * from quiz_set(auth.uid(), current_date)$$);
+select pg_temp.t('39 Kuis: kunci jawaban bocor lewat quiz_today sebelum menjawab', $$select 1 from quiz_today() where answer is not null and choice is null$$, 0);
+select pg_temp.t('40 Kuis: jawab soal di luar set hari ini', $$select quiz_answer((select max(id) from quiz_questions q where q.id not in (select id from quiz_today())), 0::smallint)$$);
+select pg_temp.t('41 Kuis: tulis jawaban benar langsung ke tabel', $$insert into quiz_answers values (auth.uid(), 1, current_date, 0, true)$$);
+select pg_temp.t('42 Kuis: aktifkan/ubah soal', $$update quiz_questions set answer = 0$$);
 select pg_temp.t('36 Daftarkan diri jadi admin', $$insert into admins values ('penyerang@gmail.com')$$);
 select pg_temp.t('28 Tulis pengumuman palsu', $$insert into announcements (body) values ('Hadiah 1 juta, transfer dulu ke ...')$$);
 select pg_temp.t('29 Intip pengumuman nonaktif (draft admin)', $$select * from announcements where not active$$, 0);

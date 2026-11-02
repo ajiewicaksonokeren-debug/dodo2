@@ -221,6 +221,7 @@ language plpgsql security definer set search_path = public as $$
 declare s text;
 begin
   perform public.refresh_board('global');
+  perform public.refresh_quiz_board();
   perform public.refresh_board(to_char(now() at time zone 'Asia/Jakarta', 'YYYY-MM-DD'));
   for s in delete from public.board_dirty returning scope loop perform public.refresh_board(s); end loop;
   -- Distribusi hanya untuk match yang sudah terkunci (F8): tidak memengaruhi tebakan orang lain.
@@ -395,6 +396,103 @@ language sql stable security definer set search_path = public as $$
   order by b.scope = 'global' desc, b.scope desc
 $$;
 
+-- ================= KUIS HARIAN =================
+-- Bank soal (isi: supabase/quiz/seed.sql). Tidak bisa dibaca langsung oleh pemain: kunci jawaban hanya keluar setelah menjawab.
+create table public.quiz_questions (
+  id       int primary key,
+  category text not null,
+  season   smallint,
+  question text not null,
+  options  text[] not null check (array_length(options, 1) between 3 and 4),
+  answer   smallint not null,
+  fact     text not null,        -- penjelasan setelah menjawab
+  source   text not null,        -- asal fakta (untuk dicek kalau ada protes)
+  active   boolean not null default true,  -- admin matikan kalau soal ternyata salah
+  check (answer >= 0 and answer < array_length(options, 1))
+);
+create table public.quiz_answers (
+  user_id     uuid not null references auth.users on delete cascade,
+  question_id int not null references public.quiz_questions,
+  day         date not null,
+  choice      smallint not null,
+  correct     boolean not null,
+  answered_at timestamptz not null default now(),
+  primary key (user_id, question_id)   -- satu soal sekali seumur pemain
+);
+create index quiz_answers_day on public.quiz_answers (user_id, day);
+alter table public.quiz_questions enable row level security;
+alter table public.quiz_answers enable row level security;
+create policy quiz_admin_read on public.quiz_questions for select to authenticated using (public.is_admin());
+create policy quiz_admin_update on public.quiz_questions for update to authenticated using (public.is_admin()) with check (public.is_admin());
+revoke all on public.quiz_questions, public.quiz_answers from anon, authenticated;
+grant select on public.quiz_questions to authenticated;          -- RLS: hanya admin
+grant update (active) on public.quiz_questions to authenticated;  -- RLS: hanya admin
+
+-- 5 soal per pemain per hari (WIB): yang sudah dijawab hari ini + soal acak (urutan tetap per pemain per hari) yang belum pernah dijawab.
+create function public.quiz_set(p_uid uuid, p_day date)
+returns setof public.quiz_questions language sql stable security definer set search_path = public as $$
+  (select q.* from public.quiz_answers a join public.quiz_questions q on q.id = a.question_id where a.user_id = p_uid and a.day = p_day)
+  union all
+  (select q.* from public.quiz_questions q
+   where q.active and not exists (select 1 from public.quiz_answers a where a.user_id = p_uid and a.question_id = q.id)
+   order by md5(p_uid::text || p_day::text || q.id::text)
+   limit greatest(0, 5 - (select count(*) from public.quiz_answers a where a.user_id = p_uid and a.day = p_day)))
+$$;
+
+create function public.quiz_today()
+returns table (id int, category text, question text, options text[], choice smallint, answer smallint, fact text)
+language plpgsql stable security definer set search_path = public as $$
+declare uid uuid := auth.uid(); d date := (now() at time zone 'Asia/Jakarta')::date;
+begin
+  if uid is null then raise exception 'Masuk dulu untuk main kuis' using errcode = '28000'; end if;
+  return query
+  select q.id, q.category, q.question, q.options, a.choice,
+         case when a.choice is not null then q.answer end,   -- kunci hanya untuk soal yang sudah dijawab
+         case when a.choice is not null then q.fact end
+  from public.quiz_set(uid, d) q
+  left join public.quiz_answers a on a.user_id = uid and a.question_id = q.id
+  order by a.answered_at nulls last, q.id;
+end $$;
+
+create function public.quiz_answer(p_question int, p_choice smallint) returns json
+language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid(); d date := (now() at time zone 'Asia/Jakarta')::date; q public.quiz_questions;
+begin
+  if uid is null then raise exception 'Masuk dulu untuk main kuis' using errcode = '28000'; end if;
+  if not exists (select 1 from auth.users where id = uid and raw_app_meta_data->'providers' ? 'google') then
+    raise exception 'Hanya bisa masuk pakai Google' using errcode = '28000';
+  end if;
+  select * into q from public.quiz_set(uid, d) s where s.id = p_question;
+  if not found then raise exception 'Soal ini bukan bagian kuis kamu hari ini'; end if;
+  if exists (select 1 from public.quiz_answers where user_id = uid and question_id = p_question) then
+    raise exception 'Soal ini sudah kamu jawab';
+  end if;
+  if p_choice is null or p_choice < 0 or p_choice >= array_length(q.options, 1) then raise exception 'Pilihan tidak valid'; end if;
+  insert into public.players (user_id, name)
+  select uid, public.public_name(raw_user_meta_data) from auth.users where id = uid on conflict (user_id) do nothing;
+  insert into public.save_days values (uid, d) on conflict do nothing;
+  insert into public.quiz_answers (user_id, question_id, day, choice, correct) values (uid, p_question, d, p_choice, p_choice = q.answer);
+  return json_build_object('correct', p_choice = q.answer, 'answer', q.answer, 'fact', q.fact);
+end $$;
+
+-- Klasemen kuis (snapshot scope 'kuis', ikut refresh_all tiap menit): poin = jawaban benar; seri → yang lebih dulu selesai.
+create function public.refresh_quiz_board() returns void
+language sql security definer set search_path = public set work_mem = '32MB' as $$
+  delete from public.board where scope = 'kuis';
+  insert into public.board (scope, user_id, rank, name, points, exact, picks)
+  select 'kuis', s.user_id, row_number() over (order by s.points desc, s.last_at asc, s.user_id), pl.name, s.points, s.points, s.picks
+  from (select user_id, count(*) filter (where correct)::int as points, count(*)::int as picks, max(answered_at) as last_at
+        from public.quiz_answers group by user_id) s
+  join public.players pl on pl.user_id = s.user_id and not pl.disqualified;
+$$;
+
+create function public.quiz_leaderboard()
+returns table (rank int, name text, points int, exact int, picks int, is_me boolean)
+language sql stable security definer set search_path = public as $$
+  select b.rank, b.name, b.points, b.exact, b.picks, b.user_id is not distinct from auth.uid()
+  from public.board b where b.scope = 'kuis' and (b.rank <= 100 or b.user_id = auth.uid()) order by b.rank
+$$;
+
 -- UU PDP: hapus akun & semua tebakan.
 create function public.delete_my_account() returns void
 language sql security definer set search_path = public, auth as $$
@@ -404,9 +502,10 @@ $$;
 
 -- Supabase memberi anon/authenticated EXECUTE ke semua fungsi baru secara default → cabut semua, buka yang perlu saja.
 revoke execute on all functions in schema public from public, anon, authenticated;
-grant execute on function public.leaderboard(date), public.pick_stats(), public.champions() to anon, authenticated;
+grant execute on function public.leaderboard(date), public.pick_stats(), public.champions(), public.quiz_leaderboard() to anon, authenticated;
 grant execute on function public.save_prediction(smallint, smallint, smallint, boolean), public.delete_my_account(),
-  public.is_admin(), public.admin_metrics(), public.admin_players(int), public.admin_set_disqualified(uuid, boolean, text) to authenticated;
+  public.is_admin(), public.admin_metrics(), public.admin_players(int), public.admin_set_disqualified(uuid, boolean, text),
+  public.quiz_today(), public.quiz_answer(int, smallint) to authenticated;
 
 -- Refresh snapshot tiap menit. Supabase: pg_cron tersedia di semua plan.
 do $$ begin
