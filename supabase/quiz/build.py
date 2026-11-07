@@ -109,6 +109,54 @@ F = [  # (kategori, soal, jawaban, pilihan lain, fakta, sumber)
 for cat, q, a, others, fact, src in F:
     add(cat, q, a, [a] + others, fact, src)
 
+# Tambahan 2026-11-07. SELALU tambah di belakang: id soal lama tidak boleh bergeser (jawaban pemain menunjuk id).
+SRC_M1 = "oneesports.gg (M1 grand finals EVOS 4-3 RRQ); kakuchopurei.com (EVOS wins M1)"
+SRC_MSC = "inet.detik.com (daftar juara MSC, ONIC dua kali); oneesports.id/mobile-legends/msc-daftar-juara"
+SRC_S1 = "telkomsel.com (asal-usul MPL ID); en.wikipedia.org/wiki/MPL_Indonesia"
+SRC_S18 = "tekno.kompas.com (klasemen akhir MPL ID S18); inet.detik.com (klasemen akhir reguler season S18)"
+F2 = [
+    ("Internasional", "Berapa skor grand final M1 World Championship antara EVOS dan RRQ?", "4–3", ["4–0", "4–1", "4–2"],
+     "Grand final M1 (2019): EVOS 4–3 RRQ, final sesama tim Indonesia.", SRC_M1),
+    ("Internasional", "Siapa lawan EVOS di grand final M1 World Championship?", "RRQ Hoshi", ["ONIC", "Bren Esports", "Todak"],
+     "Grand final M1 (2019): EVOS 4–3 RRQ.", SRC_M1),
+    ("Internasional", "Siapa MVP turnamen M1 World Championship 2019?", "Oura", ["Lemon", "Donkey", "Rekt"],
+     "Eko \"Oura\" Julianto (EVOS) jadi MVP turnamen M1.", SRC_M1),
+    ("Internasional", "Di kota mana M1 World Championship 2019 digelar?", "Kuala Lumpur", ["Jakarta", "Manila", "Singapura"],
+     "M1 World Championship digelar di Kuala Lumpur, Malaysia, November 2019.", SRC_M1),
+    ("Internasional", "Grand final M1 World Championship mempertemukan dua tim dari negara…", "Indonesia", ["Filipina", "Malaysia", "Myanmar"],
+     "EVOS vs RRQ: final M1 sesama tim Indonesia.", SRC_M1),
+    ("Internasional", "Tim Indonesia pertama yang juara MSC adalah…", "ONIC", ["EVOS", "RRQ Hoshi", "Bigetron"],
+     "ONIC juara MSC 2019, gelar MSC pertama untuk Indonesia.", SRC_MSC),
+    ("Internasional", "Di final MSC 2019, ONIC mengalahkan siapa?", "Louvre", ["EVOS", "RRQ Hoshi", "Aether Main"],
+     "Final MSC 2019: ONIC 3–0 Louvre.", SRC_MSC),
+    ("Internasional", "Di final MSC 2023, ONIC mengalahkan siapa?", "Blacklist International", ["RSG Philippines", "Echo", "Todak"],
+     "ONIC juara MSC 2023 setelah mengalahkan Blacklist International.", SRC_MSC),
+    ("Internasional", "Wakil Indonesia yang kalah 0–4 dari RSG Philippines di final MSC 2022 adalah…", "RRQ Hoshi", ["ONIC", "EVOS", "Bigetron"],
+     "Final MSC 2022: RSG Philippines 4–0 RRQ Hoshi.", SRC_MSC),
+    ("Internasional", "Berapa gelar MSC yang dimiliki ONIC (sampai 2025)?", "2", ["1", "3", "4"],
+     "ONIC juara MSC 2019 dan 2023.", SRC_MSC),
+    ("Internasional", "MSC tidak digelar pada tahun berapa karena pandemi COVID-19?", "2020", ["2019", "2021", "2022"],
+     "MSC 2020 ditiadakan karena pandemi.", SRC_MSC),
+    ("Sejarah", "Berapa tim yang bertanding di MPL ID Season 1 (2018)?", "10", ["8", "12", "16"],
+     "MPL ID S1 diikuti 10 tim hasil kualifikasi daring.", SRC_S1),
+    ("Sejarah", "Berapa tim yang ikut kualifikasi daring MPL ID Season 1?", "2.048", ["512", "1.024", "4.096"],
+     "Kualifikasi daring MPL ID S1 (Desember 2017) diikuti 2.048 tim.", SRC_S1),
+    ("Season 18", "Tim mana yang finis peringkat 1 regular season MPL ID Season 18?", "Team Liquid ID", ["NAVI", "Alter Ego", "ONIC"],
+     "Klasemen akhir regular season S18: Team Liquid ID teratas (12–4).", SRC_S18),
+    ("Season 18", "Berapa rekor menang–kalah Team Liquid ID di regular season MPL ID S18?", "12–4", ["10–6", "11–5", "13–3"],
+     "Team Liquid ID finis 12 menang, 4 kalah dari 16 pertandingan.", SRC_S18),
+    ("Season 18", "Tim mana yang finis peringkat 2 regular season MPL ID S18?", "NAVI", ["Alter Ego", "Bigetron by Vitality", "EVOS"],
+     "Peringkat 1–2 regular season S18: Team Liquid ID, NAVI (dapat slot upper bracket playoff).", SRC_S18),
+    ("Season 18", "Tim mana yang TIDAK lolos ke playoff MPL ID S18?", "RRQ Hoshi", ["ONIC", "EVOS", "Alter Ego"],
+     "Tiga tim terbawah S18: Dewa United Esports, RRQ Hoshi, Geek Fam.", SRC_S18),
+    ("Season 18", "Berapa tim yang bertanding di regular season MPL ID S18?", "9", ["8", "10", "12"],
+     "Regular season S18 diikuti 9 tim; 6 teratas ke playoff.", SRC_S18),
+    ("Season 18", "ONIC finis di peringkat berapa pada regular season MPL ID S18?", "6", ["1", "3", "4"],
+     "Klasemen akhir S18: TLID, NAVI, Alter Ego, Bigetron by Vitality, EVOS, ONIC, Dewa United, RRQ Hoshi, Geek Fam.", SRC_S18),
+]
+for cat, q, a, others, fact, src in F2:
+    add(cat, q, a, [a] + others, fact, src)
+
 sql = ["-- DIBANGKITKAN oleh supabase/quiz/build.py. Jangan edit manual; edit build.py lalu jalankan ulang.",
        "-- Jalankan di SQL Editor SETELAH schema.sql. Aman diulang (upsert by id).",
        "insert into public.quiz_questions (id, category, season, question, options, answer, fact, source) values"]

@@ -24,7 +24,7 @@ Last verified: 2026-10-31 — `supabase/schema.sql` dites di Postgres 16 + stub 
 | `fn:admin_metrics` | rpc | supabase/schema.sql | Pemain, tebakan, kembali ≥2 hari, hari ini, Joker, diskualifikasi, per match |
 | `fn:admin_players` | rpc | supabase/schema.sql | Semua pemain (maks 50rb) urut rank global: nama, email, daftar, login terakhir, poin, `same_ip` (akun lain dari IP sama, dari auth.sessions) |
 | `fn:admin_set_disqualified` | rpc | supabase/schema.sql | Wajib alasan; set `players.disqualified` → keluar dari board & champions (≤1 menit, hari terkait ditandai dirty) |
-| `table:quiz_questions` | table | supabase/schema.sql + supabase/quiz/seed.sql | 115 soal pilihan ganda MPL ID S1–S17 (juara, final, skor, MVP, rekor, internasional, venue); `source` per soal; `active` diatur admin. Pemain tidak bisa SELECT (kunci jawaban) |
+| `table:quiz_questions` | table | supabase/schema.sql + supabase/quiz/seed.sql | 134 soal pilihan ganda MPL ID S1–S18 (juara, final, skor, MVP, rekor, internasional M1/MSC, sejarah S1, regular season S18, venue); soal baru SELALU ditambah di belakang (id lama tetap); `source` per soal; `active` diatur admin. Pemain tidak bisa SELECT (kunci jawaban) |
 | `script:quiz-build` | script | supabase/quiz/build.py | Fakta terverifikasi → seed.sql deterministik (seed 18). Fakta yang bertentangan antar sumber tidak dijadikan soal |
 | `table:quiz_answers` | table | supabase/schema.sql | PK (user, soal): satu soal sekali seumur pemain; `day` WIB |
 | `fn:quiz_today` | rpc | supabase/schema.sql | 5 soal/hari/pemain via `quiz_set()` (urutan md5(user,hari,id), stabil; tanpa soal yang pernah dijawab); kunci & fakta hanya untuk soal terjawab |
